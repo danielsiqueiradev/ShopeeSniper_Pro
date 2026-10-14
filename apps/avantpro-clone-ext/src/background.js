@@ -115,20 +115,29 @@ function extractForRpc(p) {
   }));
 }
 
+// Shopee manda alguns campos numéricos como array — o RPC faz cast
+// pra INTEGER/BIGINT e explode. Normaliza aqui antes de enviar.
+function scalar(v, idx) {
+  if (Array.isArray(v)) v = v[idx];
+  if (v === undefined || v === null || v === '') return null;
+  var n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
 function mapForRpc(i) {
   return {
     itemid: i.itemid || i.item_id,
-    shopid: i.shopid || i.shop_id,
+    shopid: scalar(i.shopid || i.shop_id, 0),
     name: i.name,
-    ctime: i.ctime,
-    catid: i.catid,
+    ctime: scalar(i.ctime, 0),
+    catid: scalar(i.catid, i.catid && i.catid.length - 1), // path → folha
     image: i.image,
-    price: i.price || i.price_min,
-    stock: i.stock,
-    sold_30_days: i.sold || i.sold_30_days,
-    historical_sold: i.historical_sold,
-    rating_star: (i.item_rating || {}).rating_star || i.rating_star,
-    rating_count: (i.item_rating || {}).rating_count || i.rating_count,
+    price: scalar(i.price || i.price_min, 0),
+    stock: scalar(i.stock, 0),
+    sold_30_days: scalar(i.sold || i.sold_30_days, 0),
+    historical_sold: scalar(i.historical_sold, 0),
+    rating_star: scalar((i.item_rating || {}).rating_star || i.rating_star, 0),
+    rating_count: scalar((i.item_rating || {}).rating_count || i.rating_count, 0),
     models: i.models
   };
 }

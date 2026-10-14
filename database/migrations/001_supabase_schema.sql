@@ -135,6 +135,23 @@ FROM ordered;
 --             stock, sold_30_days (ou historical_sold), historical_sold,
 --             rating_star, rating_count, models: [{model_id,name,price,stock}]}
 -- ============================================================================
+-- helper: JSONB → NUMERIC tolerante. A Shopee manda campos numéricos
+-- como array (catid = path de categorias, rating_count = [total, ...]).
+-- arr_idx escolhe o índice do array (-1 = último). Não-numérico → NULL.
+CREATE OR REPLACE FUNCTION _ssp_num(j JSONB, k TEXT, arr_idx INT DEFAULT 0)
+RETURNS NUMERIC
+LANGUAGE sql IMMUTABLE
+AS $$
+    SELECT CASE
+        WHEN j -> k IS NULL OR jsonb_typeof(j -> k) = 'null' THEN NULL
+        WHEN jsonb_typeof(j -> k) = 'array' THEN
+            CASE WHEN COALESCE(j -> k ->> arr_idx, '') ~ '^-?\d+(\.\d+)?$'
+                 THEN (j -> k ->> arr_idx)::NUMERIC ELSE NULL END
+        WHEN COALESCE(j ->> k, '') ~ '^-?\d+(\.\d+)?$' THEN (j ->> k)::NUMERIC
+        ELSE NULL
+    END
+$$;
+
 CREATE OR REPLACE FUNCTION ingest_shopee_batch(payload JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -151,17 +168,17 @@ DECLARE
 BEGIN
     -- shop (se vier agregado do /shop/get_shop_base)
     shop := payload -> 'shop';
-    IF shop IS NOT NULL THEN
+    IF shop IS NOT NULL AND _ssp_num(shop, 'shopid') IS NOT NULL THEN
         INSERT INTO competitor_shops
             (shop_id, shop_name, location, rating_star, response_rate,
              follower_count, is_official_shop, updated_at)
         VALUES (
-            (shop ->> 'shopid')::BIGINT,
+            _ssp_num(shop, 'shopid')::BIGINT,
             shop ->> 'name',
             shop ->> 'location',
-            (shop ->> 'rating_star')::NUMERIC,
-            (shop ->> 'response_rate')::NUMERIC,
-            (shop ->> 'follower_count')::INT,
+            _ssp_num(shop, 'rating_star'),
+            _ssp_num(shop, 'response_rate'),
+            _ssp_num(shop, 'follower_count')::INT,
             COALESCE((shop ->> 'is_official_shop')::BOOLEAN, FALSE),
             now()
         )
@@ -174,76 +191,89 @@ BEGIN
             updated_at     = now();
     END IF;
 
-    -- itens
+    -- itens (cada um num bloco: um item ruim não derruba o lote)
     FOR item IN SELECT * FROM jsonb_array_elements(payload -> 'items') LOOP
-        -- upsert da loja embutida no item, se houver
-        IF item ->> 'shopid' IS NOT NULL THEN
-            INSERT INTO competitor_shops (shop_id, updated_at)
-            VALUES ((item ->> 'shopid')::BIGINT, now())
-            ON CONFLICT (shop_id) DO NOTHING;
+        IF _ssp_num(item, 'itemid') IS NULL THEN
+            CONTINUE;
         END IF;
 
-        INSERT INTO monitored_products
-            (item_id, shop_id, name, ctime, category_id, image_url, updated_at)
-        VALUES (
-            (item ->> 'itemid')::BIGINT,
-            NULLIF(item ->> 'shopid', '')::BIGINT,
-            item ->> 'name',
-            NULLIF(item ->> 'ctime', '')::BIGINT,
-            NULLIF(item ->> 'catid', '')::BIGINT,
-            item ->> 'image',
-            now()
-        )
-        ON CONFLICT (item_id) DO UPDATE SET
-            shop_id  = COALESCE(EXCLUDED.shop_id, monitored_products.shop_id),
-            name     = COALESCE(EXCLUDED.name, monitored_products.name),
-            ctime    = COALESCE(EXCLUDED.ctime, monitored_products.ctime),
-            updated_at = now();
-        n_products := n_products + 1;
+        BEGIN
+            -- upsert da loja embutida no item, se houver
+            IF _ssp_num(item, 'shopid') IS NOT NULL THEN
+                INSERT INTO competitor_shops (shop_id, updated_at)
+                VALUES (_ssp_num(item, 'shopid')::BIGINT, now())
+                ON CONFLICT (shop_id) DO NOTHING;
+            END IF;
 
-        -- snapshot diário (idempotente por UNIQUE(item_id, snapshot_date))
-        INSERT INTO product_daily_snapshots
-            (item_id, snapshot_date, price, stock, sold_30_days,
-             historical_sold, rating_star, rating_count)
-        VALUES (
-            (item ->> 'itemid')::BIGINT,
-            CURRENT_DATE,
-            (item ->> 'price')::NUMERIC,
-            NULLIF(item ->> 'stock', '')::INT,
-            NULLIF(item ->> 'sold_30_days', '')::INT,
-            NULLIF(item ->> 'historical_sold', '')::BIGINT,
-            NULLIF(item ->> 'rating_star', '')::NUMERIC,
-            NULLIF(item ->> 'rating_count', '')::INT
-        )
-        ON CONFLICT (item_id, snapshot_date) DO UPDATE SET
-            price           = EXCLUDED.price,
-            stock           = EXCLUDED.stock,
-            sold_30_days    = EXCLUDED.sold_30_days,
-            historical_sold = EXCLUDED.historical_sold,
-            rating_star     = EXCLUDED.rating_star,
-            rating_count    = EXCLUDED.rating_count;
-        n_snapshots := n_snapshots + 1;
+            INSERT INTO monitored_products
+                (item_id, shop_id, name, ctime, category_id, image_url, updated_at)
+            VALUES (
+                _ssp_num(item, 'itemid')::BIGINT,
+                _ssp_num(item, 'shopid')::BIGINT,
+                item ->> 'name',
+                _ssp_num(item, 'ctime')::BIGINT,
+                _ssp_num(item, 'catid', -1)::BIGINT, -- path de categorias → folha
+                item ->> 'image',
+                now()
+            )
+            ON CONFLICT (item_id) DO UPDATE SET
+                shop_id  = COALESCE(EXCLUDED.shop_id, monitored_products.shop_id),
+                name     = COALESCE(EXCLUDED.name, monitored_products.name),
+                ctime    = COALESCE(EXCLUDED.ctime, monitored_products.ctime),
+                updated_at = now();
+            n_products := n_products + 1;
 
-        -- modelos/SKUs
-        IF item -> 'models' IS NOT NULL THEN
-            FOR model IN SELECT * FROM jsonb_array_elements(item -> 'models') LOOP
-                INSERT INTO product_sku_models
-                    (model_id, item_id, sku_name, price, stock, updated_at)
-                VALUES (
-                    (model ->> 'modelid')::BIGINT,
-                    (item ->> 'itemid')::BIGINT,
-                    COALESCE(model ->> 'name', model ->> 'model_name'),
-                    (model ->> 'price')::NUMERIC,
-                    NULLIF(model ->> 'stock', '')::INT,
-                    now()
-                )
-                ON CONFLICT (model_id) DO UPDATE SET
-                    price      = EXCLUDED.price,
-                    stock      = EXCLUDED.stock,
-                    updated_at = now();
-                n_models := n_models + 1;
-            END LOOP;
-        END IF;
+            -- snapshot diário (idempotente por UNIQUE(item_id, snapshot_date))
+            INSERT INTO product_daily_snapshots
+                (item_id, snapshot_date, price, stock, sold_30_days,
+                 historical_sold, rating_star, rating_count)
+            VALUES (
+                _ssp_num(item, 'itemid')::BIGINT,
+                CURRENT_DATE,
+                _ssp_num(item, 'price'),
+                _ssp_num(item, 'stock')::INT,
+                _ssp_num(item, 'sold_30_days')::INT,
+                _ssp_num(item, 'historical_sold')::BIGINT,
+                _ssp_num(item, 'rating_star'),
+                _ssp_num(item, 'rating_count')::INT
+            )
+            ON CONFLICT (item_id, snapshot_date) DO UPDATE SET
+                price           = EXCLUDED.price,
+                stock           = EXCLUDED.stock,
+                sold_30_days    = EXCLUDED.sold_30_days,
+                historical_sold = EXCLUDED.historical_sold,
+                rating_star     = EXCLUDED.rating_star,
+                rating_count    = EXCLUDED.rating_count;
+            n_snapshots := n_snapshots + 1;
+
+            -- modelos/SKUs
+            IF item -> 'models' IS NOT NULL THEN
+                FOR model IN SELECT * FROM jsonb_array_elements(item -> 'models') LOOP
+                    IF _ssp_num(model, 'modelid') IS NULL THEN
+                        CONTINUE;
+                    END IF;
+                    INSERT INTO product_sku_models
+                        (model_id, item_id, sku_name, price, stock, updated_at)
+                    VALUES (
+                        _ssp_num(model, 'modelid')::BIGINT,
+                        _ssp_num(item, 'itemid')::BIGINT,
+                        COALESCE(model ->> 'name', model ->> 'model_name'),
+                        _ssp_num(model, 'price'),
+                        _ssp_num(model, 'stock')::INT,
+                        now()
+                    )
+                    ON CONFLICT (model_id) DO UPDATE SET
+                        price      = EXCLUDED.price,
+                        stock      = EXCLUDED.stock,
+                        updated_at = now();
+                    n_models := n_models + 1;
+                END LOOP;
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            -- item malformado não pode derrubar os outros N-1 do lote
+            RAISE WARNING 'ingest_shopee_batch: item % ignorado: %',
+                          item ->> 'itemid', SQLERRM;
+        END;
     END LOOP;
 
     RETURN jsonb_build_object(
