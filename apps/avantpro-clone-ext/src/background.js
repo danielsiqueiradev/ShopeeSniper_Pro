@@ -11,7 +11,14 @@
  *   supabaseUrl, supabaseKey  (opcional — push direto pro RPC)
  */
 
-const DEFAULTS = { backendUrl: 'http://localhost:8000' };
+// supabaseUrl/supabaseKey = projeto + anon key (pública por design; a
+// proteção real é o RLS + RPC SECURITY DEFINER). Sobrescrevíveis via
+// chrome.storage.local se precisar apontar pra outro projeto.
+const DEFAULTS = {
+  backendUrl: 'http://localhost:8000',
+  supabaseUrl: 'https://uiaryvsqcaevatfkxuop.supabase.co',
+  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpYXJ5dnNxY2FldmF0Zmt4dW9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5MzAwMDMsImV4cCI6MjEwNzUwNjAwM30.FmfaMw2e0UgViAhzIPapCxlnNDizq_ajx6tdXjccElY'
+};
 
 async function cfg() {
   const c = await chrome.storage.local.get(['backendUrl', 'supabaseUrl', 'supabaseKey']);
