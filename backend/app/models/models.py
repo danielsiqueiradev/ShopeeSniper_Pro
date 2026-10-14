@@ -172,7 +172,8 @@ class ProductReviewsSummary(Base):
     negative_ratio: Mapped[float | None] = mapped_column(Numeric(5, 4))
     top_pain_points: Mapped[list] = mapped_column(JSONB, default=list)
     improvement_insight: Mapped[str | None] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=datetime.utcnow)
 
 
 class NicheDailyStats(Base):

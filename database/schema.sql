@@ -182,6 +182,10 @@ CREATE TABLE product_daily_snapshots_2026_11 PARTITION OF product_daily_snapshot
     FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
 CREATE TABLE product_daily_snapshots_2026_12 PARTITION OF product_daily_snapshots
     FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
+-- Partição default: captura qualquer data fora das mensais (backfill,
+-- dados históricos, drift de fuso) — revisar e particionar depois
+CREATE TABLE product_daily_snapshots_default PARTITION OF product_daily_snapshots
+    DEFAULT;
 
 CREATE INDEX idx_snap_date ON product_daily_snapshots (snapshot_date DESC);
 CREATE INDEX idx_snap_product_date ON product_daily_snapshots (product_id, snapshot_date DESC);

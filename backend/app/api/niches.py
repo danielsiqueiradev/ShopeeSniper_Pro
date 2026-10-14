@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -30,20 +30,20 @@ def create_niche(body: NicheIn, db: Session = Depends(get_db)):
 @router.get("")
 def list_niches(db: Session = Depends(get_db)):
     """Nichos com a estatística mais recente (ticket médio, concentração)."""
-    rows = db.execute(select(m.Niche, m.NicheDailyStats)
-                      .outerjoin(m.NicheDailyStats,
-                                 (m.NicheDailyStats.niche_id == m.Niche.id)
-                                 & (m.NicheDailyStats.stat_date ==
-                                    select(m.NicheDailyStats.stat_date)
-                                    .where(m.NicheDailyStats.niche_id == m.Niche.id)
-                                    .order_by(m.NicheDailyStats.stat_date.desc())
-                                    .limit(1).scalar_subquery())))
-    return [{"niche_id": str(n.id), "name": n.name,
-             "weighted_avg_ticket": float(s.weighted_avg_ticket) if s and s.weighted_avg_ticket else None,
-             "top3_share": float(s.top3_share) if s and s.top3_share else None,
-             "total_revenue_est": float(s.total_revenue_est) if s and s.total_revenue_est else None,
-             "total_sold_30d": s.total_sold_30d if s else None}
-            for n, s in rows]
+    rows = db.execute(text("""
+        SELECT n.id AS niche_id, n.name,
+               s.weighted_avg_ticket, s.top3_share,
+               s.total_revenue_est, s.total_sold_30d
+        FROM niches n
+        LEFT JOIN LATERAL (
+            SELECT * FROM niche_daily_stats s
+            WHERE s.niche_id = n.id
+            ORDER BY s.stat_date DESC LIMIT 1
+        ) s ON TRUE
+        WHERE n.is_active
+        ORDER BY n.name
+    """)).mappings()
+    return [dict(r) for r in rows]
 
 
 @router.get("/{niche_id}/stats-history")
