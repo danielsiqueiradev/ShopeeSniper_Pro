@@ -56,7 +56,17 @@
     var list = extractItems(p);
     list.forEach(function (it) {
       var id = it.itemid || it.item_id;
-      if (id) items.set(String(id), it);
+      if (!id) return;
+      var old = items.get(String(id));
+      if (!old) {
+        items.set(String(id), it);
+      } else {
+        // merge: campos definidos do novo sobrescrevem o antigo; um
+        // payload magro (recommend) nunca apaga o rico (item/get)
+        for (var k in it) {
+          if (it[k] !== undefined && it[k] !== null) old[k] = it[k];
+        }
+      }
     });
 
     if (route.indexOf('get_shop_base') !== -1) {

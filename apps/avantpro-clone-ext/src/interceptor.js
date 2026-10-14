@@ -204,7 +204,7 @@
     console.log('[ShopeeSniper] fetch item/get p/ ' + queue.length + ' itens do DOM');
     (function next() {
       var ids = queue.shift();
-      if (!ids || window.__SSP_SEEN) return;
+      if (!ids) return;
       fetch('/api/v4/item/get?itemid=' + ids.itemid + '&shopid=' + ids.shopid,
             { credentials: 'include', headers: { 'x-api-source': 'pc' } })
         .catch(function () {})
@@ -214,23 +214,26 @@
 
   var bootstrapTries = 0;
   function bootstrap() {
-    if (window.__SSP_SEEN || bootstrapTries > 3) return;
+    if (bootstrapTries > 3) return;
     bootstrapTries++;
     setTimeout(function () {
-      if (window.__SSP_SEEN || !hasProductCards()) return;
-      var url = guessApiCall();
-      if (url) {
-        console.log('[ShopeeSniper] bootstrap:', url);
-        fetch(url, {
-          credentials: 'include',
-          headers: { 'x-api-source': 'pc' }
-        }).catch(function () {});
+      if (!hasProductCards()) return;
+      if (!window.__SSP_SEEN) {
+        var url = guessApiCall();
+        if (url) {
+          console.log('[ShopeeSniper] bootstrap:', url);
+          fetch(url, {
+            credentials: 'include',
+            headers: { 'x-api-source': 'pc' }
+          }).catch(function () {});
+        }
       }
-      // fallback: se a chamada de listagem não rolou/não pegou nada,
-      // busca os detalhes item a item pelos links do DOM
-      setTimeout(function () {
-        if (!window.__SSP_SEEN) fetchDetailsFromDom();
-      }, 3000);
+      // detalhes sempre: payloads de listagem podem vir magros (sem
+      // price/sold/ctime) — item/get traz o item completo por card
+      if (!window.__SSP_DETAILS_DONE) {
+        window.__SSP_DETAILS_DONE = true;
+        setTimeout(fetchDetailsFromDom, 1500);
+      }
     }, 2000);
   }
 
