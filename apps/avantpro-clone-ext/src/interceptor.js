@@ -64,10 +64,28 @@
   }
 
   function routeOf(url) {
+    if (!url) return null;
     for (var i = 0; i < ROUTES.length; i++) {
-      if (url && url.indexOf(ROUTES[i]) !== -1) return ROUTES[i];
+      if (url.indexOf(ROUTES[i]) !== -1) return ROUTES[i];
     }
+    // catch-all: qualquer resposta /api/v4/ é clonada; se tiver dados de
+    // item/shop/ratings dentro, vira evento (resiste a mudança de rota)
+    if (url.indexOf('/api/v4/') !== -1) return url;
     return null;
+  }
+
+  var INTERESTING_KEYS = {
+    itemid: 1, item_id: 1, item_basic: 1, ratings: 1,
+    shopid: 1, shop_id: 1, models: 1
+  };
+
+  function looksInteresting(node, depth) {
+    if (depth > 7 || !node || typeof node !== 'object') return false;
+    for (var k in node) {
+      if (INTERESTING_KEYS[k]) return true;
+      if (looksInteresting(node[k], depth + 1)) return true;
+    }
+    return false;
   }
 
   function emit(route, payload) {
@@ -78,11 +96,13 @@
         payload: payload,
         captured_at: Date.now() / 1000
       }, '*');
+      console.debug('[ShopeeSniper]', route);
     } catch (e) { /* nunca quebrar a página */ }
   }
 
   function handleJson(route, json) {
     try {
+      if (!looksInteresting(json, 0)) return;
       var clean = normalizePrices(JSON.parse(JSON.stringify(json)));
       enrichItems(clean);
       emit(route, clean);

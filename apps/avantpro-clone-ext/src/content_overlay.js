@@ -94,13 +94,14 @@
   // ======================================================================
   // A) Top Niche Bar (páginas de busca)
   // ======================================================================
-  function isSearchPage() {
-    return /shopee\.com\.br\/search|\/find_similar|\/recommend/.test(location.href)
-      || !!document.querySelector('.shopee-search-item-result__items');
+  function hasProductGrid() {
+    // busca, categoria, oficial: qualquer página com cards de produto
+    return document.querySelectorAll('a[href*="-i."], a[href*="/product/"]')
+      .length >= 4;
   }
 
   function refreshTopBar() {
-    if (!isSearchPage() || items.size === 0) return;
+    if (!hasProductGrid() || items.size === 0) return;
     var bar = document.getElementById('ssp-topbar');
     if (!bar) {
       bar = document.createElement('div');
@@ -149,11 +150,19 @@
   // ======================================================================
   // B) Badge por card de produto
   // ======================================================================
-  function findItemIdInCard(card) {
-    var a = card.matches('a[href*="-i."]') ? card : card.querySelector('a[href*="-i."]');
-    if (!a) return null;
-    var m = a.href.match(/-i\.(\d+)\.(\d+)/);
+  function parseIds(href) {
+    var m = href && href.match(/-i\.(\d+)\.(\d+)/);
+    if (m) return { shopid: m[1], itemid: m[2] };
+    m = href && href.match(/\/product\/(\d+)\/(\d+)/);
     return m ? { shopid: m[1], itemid: m[2] } : null;
+  }
+
+  function findItemIdInCard(card) {
+    var a = card.matches('a[href*="-i."], a[href*="/product/"]')
+      ? card
+      : card.querySelector('a[href*="-i."], a[href*="/product/"]');
+    if (!a) return null;
+    return parseIds(a.href);
   }
 
   function passesFilters(it) {
@@ -171,7 +180,7 @@
   }
 
   function decorateVisibleCards() {
-    var links = document.querySelectorAll('a[href*="-i."]');
+    var links = document.querySelectorAll('a[href*="-i."], a[href*="/product/"]');
     links.forEach(function (a) {
       var card = a.closest('li, .shopee-search-item-result__item, [data-sqe="item"]') || a;
       var ids = findItemIdInCard(card);
@@ -235,15 +244,15 @@
   // C) PDP Super-Drawer
   // ======================================================================
   function currentPdpItemId() {
-    var m = location.href.match(/-i\.(\d+)\.(\d+)/);
-    return m ? m[2] : null;
+    var ids = parseIds(location.href);
+    return ids ? ids.itemid : null;
   }
 
   function maybeRenderDrawer() {
     var itemid = currentPdpItemId();
     if (!itemid) return;
     var it = items.get(itemid);
-    if (!it || !it.models) return; // precisa do payload detalhado (item/get)
+    if (!it) return; // espera o payload detalhado (item/get ou pdp/get_pc)
 
     var drawer = document.getElementById('ssp-drawer');
     if (!drawer) {
@@ -273,6 +282,10 @@
 
   function skuTableHTML(it) {
     var models = it.models || [];
+    if (!models.length) {
+      return '<div class="ssp-section"><h4>📦 Variações (SKU)</h4>' +
+        '<p>Sem dados de variação neste payload.</p></div>';
+    }
     var totalStock = models.reduce(function (s, m) { return s + (m.stock || 0); }, 0) || 1;
     var rows = models.map(function (m) {
       var share = ((m.stock || 0) / totalStock * 100).toFixed(0);
