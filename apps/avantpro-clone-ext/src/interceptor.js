@@ -79,11 +79,14 @@
     shopid: 1, shop_id: 1, models: 1
   };
 
-  function looksInteresting(node, depth) {
-    if (depth > 7 || !node || typeof node !== 'object') return false;
+  function looksInteresting(node, depth, budget) {
+    // budget: para de varrer depois de ~300 nós (payloads gigantes)
+    if (depth > 6 || budget.n > 300 || !node || typeof node !== 'object')
+      return false;
     for (var k in node) {
       if (INTERESTING_KEYS[k]) return true;
-      if (looksInteresting(node[k], depth + 1)) return true;
+      if (++budget.n > 300) return false;
+      if (looksInteresting(node[k], depth + 1, budget)) return true;
     }
     return false;
   }
@@ -102,7 +105,7 @@
 
   function handleJson(route, json) {
     try {
-      if (!looksInteresting(json, 0)) return;
+      if (!looksInteresting(json, 0, { n: 0 })) return;
       var clean = normalizePrices(JSON.parse(JSON.stringify(json)));
       enrichItems(clean);
       emit(route, clean);

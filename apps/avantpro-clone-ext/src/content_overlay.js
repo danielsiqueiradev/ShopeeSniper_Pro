@@ -69,9 +69,7 @@
       if (data.itemid && data.ratings) ratings.set(String(data.itemid), data.ratings);
     }
 
-    refreshTopBar();
-    decorateVisibleCards();
-    maybeRenderDrawer();
+    schedulePaint();
     // manda pro backend (background script persiste no Supabase)
     safeSend({ type: 'SSP_INGEST', route: route, payload: p });
   }
@@ -250,17 +248,27 @@
 
   function maybeRenderDrawer() {
     var itemid = currentPdpItemId();
-    if (!itemid) return;
+    if (!itemid) {
+      var old = document.getElementById('ssp-drawer');
+      if (old) old.remove();
+      return;
+    }
     var it = items.get(itemid);
     if (!it) return; // espera o payload detalhado (item/get ou pdp/get_pc)
 
+    // só reconstrói se mudou (evita flicker/jank a cada repaint)
+    var key = itemid + ':' + ((it.models || []).length) + ':' +
+              ((ratings.get(itemid) || []).length);
     var drawer = document.getElementById('ssp-drawer');
+    if (drawer && drawer.dataset.key === key) return;
+
     if (!drawer) {
       drawer = document.createElement('div');
       drawer.id = 'ssp-drawer';
       drawer.className = 'ssp-drawer';
       document.body.appendChild(drawer);
     }
+    drawer.dataset.key = key;
     drawer.innerHTML =
       '<div class="ssp-drawer-head">🎯 ShopeeSniper <button id="ssp-toggle">▾</button></div>' +
       '<div class="ssp-drawer-body">' +
@@ -376,14 +384,24 @@
   }
 
   // ======================================================================
-  // Observer: cards injetados dinamicamente (scroll infinito da Shopee)
+  // Observer + pintura com debounce (a Shopee muda o DOM o tempo todo —
+  // sem throttle isso vira 100% CPU)
   // ======================================================================
-  var mo = new MutationObserver(function () {
-    decorateVisibleCards();
-    maybeRenderDrawer();
-  });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+  var paintTimer = null;
+  function schedulePaint() {
+    if (paintTimer) return;
+    paintTimer = setTimeout(function () {
+      paintTimer = null;
+      refreshTopBar();
+      decorateVisibleCards();
+      maybeRenderDrawer();
+    }, 400);
+  }
 
-  refreshTopBar();
-  decorateVisibleCards();
+  var mo = new MutationObserver(schedulePaint);
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+  // SPA da Shopee troca de página sem reload
+  setInterval(schedulePaint, 3000);
+
+  schedulePaint();
 })();
