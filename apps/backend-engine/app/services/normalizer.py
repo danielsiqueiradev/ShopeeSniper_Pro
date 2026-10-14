@@ -56,29 +56,62 @@ def ctime_to_fields(ctime: Any) -> dict[str, Any]:
     }
 
 
+def _is_item(node: Any) -> bool:
+    """Um dict vira item se tem itemid/item_id. Campos ricos (price, name…)
+    são bônus — stubs de PDP às vezes vêm minimalistas."""
+    return isinstance(node, dict) and bool(
+        node.get("itemid") or node.get("item_id")
+    )
+
+
 def extract_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extrai a lista de itens dos formatos de resposta conhecidos:
-    - search_items / recommend: {'items': [{'item_basic': {...}}]}
-    - item/get: {'data': {...}}  → 1 item
-    - pdp/get_pc: {'data': {'item': {...}}}
+    """Deep-scan: qualquer objeto com itemid + campos de produto vira item.
+
+    Cobre os shapes conhecidos (search_items → items[].item_basic,
+    item/get → data, pdp/get_pc → data.item) e variações aninhadas
+    (recommend → sections[].data.item, etc.).
     """
     if not isinstance(payload, dict):
         return []
-    data = payload.get("data", payload)
+    out: list[dict] = []
+    seen: set = set()
+    budget = [4000]
 
-    if isinstance(data, dict) and isinstance(data.get("items"), list):
-        out = []
-        for it in data["items"]:
-            out.append(it.get("item_basic", it) if isinstance(it, dict) else it)
-        return [i for i in out if isinstance(i, dict)]
+    def push(it: dict) -> None:
+        iid = it.get("itemid") or it.get("item_id")
+        if iid is None:
+            return
+        if iid in seen:
+            # rating/ref pobre em campos pode vir antes do item completo:
+            # mantém a versão mais rica
+            idx = next(i for i, x in enumerate(out)
+                       if (x.get("itemid") or x.get("item_id")) == iid)
+            if len(it) > len(out[idx]):
+                out[idx] = it
+            return
+        seen.add(iid)
+        out.append(it)
 
-    if isinstance(data, dict) and isinstance(data.get("item"), dict):
-        return [data["item"]]
+    def walk(node: Any, depth: int) -> None:
+        if depth > 9 or budget[0] <= 0 or not isinstance(node, (dict, list)):
+            return
+        budget[0] -= 1
+        if isinstance(node, list):
+            for el in node:
+                walk(el, depth + 1)
+            return
+        basic = node.get("item_basic")
+        if isinstance(basic, dict):
+            push(basic)
+            return
+        if _is_item(node):
+            push(node)
+            return
+        for v in node.values():
+            walk(v, depth + 1)
 
-    if isinstance(data, dict) and ("itemid" in data or "item_id" in data):
-        return [data]
-
-    return []
+    walk(payload, 0)
+    return out
 
 
 def extract_ratings(payload: dict[str, Any]) -> list[dict[str, Any]]:

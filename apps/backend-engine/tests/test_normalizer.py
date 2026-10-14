@@ -67,6 +67,22 @@ class TestExtraction:
         payload = {"data": {"ratings": [{"rating_star": 1}, {"rating_star": 5}]}}
         assert len(extract_ratings(payload)) == 2
 
+    def test_nested_sections_format(self):
+        """recommend pode aninhar itens em sections→data→item."""
+        payload = {"data": {"sections": [
+            {"data": {"item": {"itemid": 11, "price": 100}}},
+            {"data": {"item": {"itemid": 22, "name": "B"}}},
+        ]}}
+        items = extract_items(payload)
+        assert [i["itemid"] for i in items] == [11, 22]
+
+    def test_dedupes_items(self):
+        payload = {"data": {"items": [
+            {"item_basic": {"itemid": 1, "price": 10}},
+            {"item_basic": {"itemid": 1, "price": 10}},
+        ]}}
+        assert len(extract_items(payload)) == 1
+
     def test_sanitize_item_aliases(self):
         raw = {"item_id": 7, "shop_id": 8, "price": 2500000, "ctime": 1700000000}
         it = sanitize_item(raw)

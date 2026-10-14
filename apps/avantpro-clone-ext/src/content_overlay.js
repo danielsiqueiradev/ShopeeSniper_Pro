@@ -75,13 +75,49 @@
   }
 
   function extractItems(p) {
-    var data = (p && p.data) || p || {};
-    if (Array.isArray(data.items)) {
-      return data.items.map(function (i) { return i.item_basic || i; });
+    // deep-scan: qualquer objeto com itemid + (price|name|rating) vira item.
+    // Robusto pra shapes diferentes (search_items, recommend/sections, get_pc).
+    var out = [];
+    var seen = {};
+    function push(it) {
+      var id = it.itemid || it.item_id;
+      if (!id) return;
+      // rating/ref com itemid mas poucos campos pode aparecer antes do
+      // item completo — troca pela versão mais rica
+      if (seen[id]) {
+        var idx = out.indexOf(seen[id]);
+        if (idx !== -1 && Object.keys(it).length > Object.keys(seen[id]).length) {
+          out[idx] = it;
+          seen[id] = it;
+        }
+        return;
+      }
+      seen[id] = it;
+      out.push(it);
     }
-    if (data.item) return [data.item];
-    if (data.itemid || data.item_id) return [data];
-    return [];
+    function isItem(n) {
+      return n.itemid != null || n.item_id != null;
+    }
+    function walk(node, depth, budget) {
+      if (!node || typeof node !== 'object' || depth > 9 || budget.n > 4000)
+        return;
+      if (Array.isArray(node)) {
+        for (var i = 0; i < node.length; i++) walk(node[i], depth + 1, budget);
+        return;
+      }
+      budget.n++;
+      if (node.item_basic && typeof node.item_basic === 'object') {
+        push(node.item_basic);
+        return;
+      }
+      if (isItem(node)) {
+        push(node);
+        return; // não desce dentro do item (models têm modelid, não itemid)
+      }
+      for (var k in node) walk(node[k], depth + 1, budget);
+    }
+    walk(p, 0, { n: 0 });
+    return out;
   }
 
   function safeSend(msg) {
