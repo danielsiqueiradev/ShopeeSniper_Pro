@@ -138,6 +138,8 @@ FROM ordered;
 CREATE OR REPLACE FUNCTION ingest_shopee_batch(payload JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SECURITY DEFINER               -- roda como owner: permite a extensão (anon)
+SET search_path = public       --  escrever via RPC sem abrir INSERT direto
 AS $$
 DECLARE
     item            JSONB;
