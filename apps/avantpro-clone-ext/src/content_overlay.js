@@ -283,6 +283,11 @@
       var fb = domStats(card);
       // badge só aparece se temos ALGUM dado (API/SSR ou o próprio DOM)
       if (!it.itemid && !fb.price && !fb.sold) return;
+      // grava fallback de volta no map — a top bar agrega daqui
+      if (it.itemid) {
+        if (!it.price && !it.price_min) it.price = fb.price;
+        if (!it.sold && !it.sold_30_days) it.sold = fb.sold;
+      }
 
       if (!passesFilters(it)) {
         card.classList.add('ssp-dimmed');
