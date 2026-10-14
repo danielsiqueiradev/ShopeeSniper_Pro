@@ -33,6 +33,27 @@
     return price - feeTotal(price) - targetMargin * price;
   }
 
+  // normaliza campos ×100000 vindos de payload não-interceptado (SSR/JSON)
+  var SSP_PRICE_KEYS = {
+    price: 1, price_min: 1, price_max: 1,
+    price_before_discount: 1, raw_price: 1
+  };
+  function normItem(it) {
+    for (var k in SSP_PRICE_KEYS) {
+      if (typeof it[k] === 'number' && it[k] > 100000) {
+        it[k] = it[k] / 100000;
+      }
+    }
+    if (it.ctime && !it.created_date) {
+      var d = new Date(it.ctime * 1000);
+      it.created_date = ('0' + d.getDate()).slice(-2) + '/' +
+        ('0' + (d.getMonth() + 1)).slice(-2) + '/' + d.getFullYear();
+      it.age_days = Math.max(0,
+        Math.floor((Date.now() / 1000 - it.ctime) / 86400));
+    }
+    return it;
+  }
+
   function brl(v) {
     if (v == null || isNaN(v)) return '—';
     return 'R$ ' + Number(v).toLocaleString('pt-BR',
@@ -57,6 +78,7 @@
     list.forEach(function (it) {
       var id = it.itemid || it.item_id;
       if (!id) return;
+      normItem(it);
       var old = items.get(String(id));
       if (!old) {
         items.set(String(id), it);
@@ -192,6 +214,34 @@
   }
 
   // ======================================================================
+  // SSR harvest: Shopee embarca os itens como JSON dentro de <script>
+  // (páginas com renderização server-side). Raspar isso cobre TODOS os
+  // cards sem depender de chamada de API.
+  // ======================================================================
+  function harvestEmbeddedData() {
+    var scripts = document.querySelectorAll('script');
+    var found = 0;
+    for (var i = 0; i < scripts.length; i++) {
+      var t = scripts[i].textContent;
+      if (!t || t.length < 100 || t.indexOf('itemid') === -1) continue;
+      var j = t.indexOf('{');
+      var k = t.lastIndexOf('}');
+      if (j === -1 || k <= j) continue;
+      try {
+        var data = JSON.parse(t.slice(j, k + 1));
+        extractItems(data).forEach(function (it) {
+          var id = it.itemid || it.item_id;
+          if (!id) return;
+          normItem(it);
+          if (!items.has(String(id))) items.set(String(id), it);
+          found++;
+        });
+      } catch (e) { /* script não é JSON puro — pula */ }
+    }
+    if (found) console.log('[ShopeeSniper] SSR: ' + found + ' itens do HTML');
+  }
+
+  // ======================================================================
   // B) Badge por card de produto
   // ======================================================================
   function parseIds(href) {
@@ -229,8 +279,10 @@
       var card = a.closest('li, .shopee-search-item-result__item, [data-sqe="item"]') || a;
       var ids = findItemIdInCard(card);
       if (!ids) return;
-      var it = items.get(ids.itemid);
-      if (!it) return;
+      var it = items.get(ids.itemid) || {};
+      var fb = domStats(card);
+      // badge só aparece se temos ALGUM dado (API/SSR ou o próprio DOM)
+      if (!it.itemid && !fb.price && !fb.sold) return;
 
       var host = card;
       if (!passesFilters(it)) {
@@ -242,7 +294,7 @@
 
       var badge = document.createElement('div');
       badge.className = 'ssp-badge';
-      badge.innerHTML = badgeHTML(it);
+      badge.innerHTML = badgeHTML(it, fb);
       host.appendChild(badge);
 
       // delta 24h via backend/Supabase (background)
@@ -250,10 +302,26 @@
     });
   }
 
-  function badgeHTML(it) {
-    var s30 = it.sold || it.sold_30_days || 0;
+  // Raspa preço e vendidos do texto do card — fallback quando o item
+  // não foi capturado via API/SSR
+  function domStats(card) {
+    var t = card.innerText || '';
+    var price = 0, sold = 0;
+    var pm = t.match(/R\$\s*([\d.]+,\d{2})/);
+    if (pm) price = parseFloat(pm[1].replace(/\./g, '').replace(',', '.'));
+    var sm = t.match(/(\d+(?:[.,]\d+)?)\s*(mil)?\+?\s*Vendido/i);
+    if (sm) {
+      sold = Math.round(parseFloat(sm[1].replace(',', '.')) *
+                        (sm[2] ? 1000 : 1));
+    }
+    return { price: price, sold: sold };
+  }
+
+  function badgeHTML(it, fb) {
+    fb = fb || { price: 0, sold: 0 };
+    var s30 = it.sold || it.sold_30_days || fb.sold || 0;
     var hist = it.historical_sold || 0;
-    var price = it.price || it.price_min || 0;
+    var price = it.price || it.price_min || fb.price || 0;
     var age = it.age_days;
     var vel30 = (s30 / 30).toFixed(1);
     var velLife = age ? (hist / Math.max(age, 1)).toFixed(1) : '—';
@@ -449,5 +517,7 @@
   // SPA da Shopee troca de página sem reload
   setInterval(schedulePaint, 3000);
 
+  harvestEmbeddedData();
+  setTimeout(harvestEmbeddedData, 3000); // scripts podem hidratar depois
   schedulePaint();
 })();
