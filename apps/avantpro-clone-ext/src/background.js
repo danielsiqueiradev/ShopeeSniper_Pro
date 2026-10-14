@@ -26,6 +26,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return; // fire & forget
   }
 
+  if (msg.type === 'SSP_INGEST_ITEMS') {
+    // itens já normalizados pelo overlay (API + SSR + DOM)
+    ingestItems(msg.items || []).catch(() => {});
+    return;
+  }
+
   if (msg.type === 'SSP_DELTA') {
     fetchDelta(msg.itemid)
       .then((sales) => sendToTab(sender.tab && sender.tab.id, {
@@ -100,6 +106,56 @@ function extractForRpc(p) {
     rating_count: (i.item_rating || {}).rating_count,
     models: i.models
   }));
+}
+
+function mapForRpc(i) {
+  return {
+    itemid: i.itemid || i.item_id,
+    shopid: i.shopid || i.shop_id,
+    name: i.name,
+    ctime: i.ctime,
+    catid: i.catid,
+    image: i.image,
+    price: i.price || i.price_min,
+    stock: i.stock,
+    sold_30_days: i.sold || i.sold_30_days,
+    historical_sold: i.historical_sold,
+    rating_star: (i.item_rating || {}).rating_star || i.rating_star,
+    rating_count: (i.item_rating || {}).rating_count || i.rating_count,
+    models: i.models
+  };
+}
+
+async function ingestItems(items) {
+  const mapped = items.map(mapForRpc).filter((i) => i.itemid);
+  if (!mapped.length) return;
+  const c = await cfg();
+
+  // 1) backend FastAPI (normaliza + empurra pro Supabase via RPC)
+  try {
+    await fetch(`${c.backendUrl}/ingest/payload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        route: 'overlay/normalized-items',
+        payload: { items: mapped },
+        captured_at: Date.now() / 1000
+      })
+    });
+  } catch (e) { /* backend offline — segue pro direto */ }
+
+  // 2) Supabase direto (se configurado)
+  if (c.supabaseUrl && c.supabaseKey) {
+    await fetch(`${c.supabaseUrl}/rest/v1/rpc/ingest_shopee_batch`, {
+      method: 'POST',
+      headers: {
+        'apikey': c.supabaseKey,
+        'Authorization': `Bearer ${c.supabaseKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ payload: { items: mapped } })
+    }).catch(() => {});
+  }
 }
 
 async function fetchDelta(itemid) {

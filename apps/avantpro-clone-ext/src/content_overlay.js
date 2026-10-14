@@ -89,6 +89,7 @@
           if (it[k] !== undefined && it[k] !== null) old[k] = it[k];
         }
       }
+      queueItem(items.get(String(id)));
     });
 
     if (route.indexOf('get_shop_base') !== -1) {
@@ -156,6 +157,20 @@
     try { chrome.runtime.sendMessage(msg, function () { void chrome.runtime.lastError; }); }
     catch (e) {}
   }
+
+  // fila de itens normalizados pra ingest (backend + Supabase via background).
+  // flush a cada 5s — dá tempo do merge/DOM enriquecer antes de enviar.
+  var ingestQueue = new Map();
+  function queueItem(it) {
+    var id = it.itemid || it.item_id;
+    if (id) ingestQueue.set(String(id), it);
+  }
+  setInterval(function () {
+    if (!ingestQueue.size) return;
+    var list = Array.from(ingestQueue.values());
+    ingestQueue.clear();
+    safeSend({ type: 'SSP_INGEST_ITEMS', items: list });
+  }, 5000);
 
   // ======================================================================
   // A) Top Niche Bar (páginas de busca)
@@ -234,6 +249,7 @@
           if (!id) return;
           normItem(it);
           if (!items.has(String(id))) items.set(String(id), it);
+          queueItem(items.get(String(id)));
           found++;
         });
       } catch (e) { /* script não é JSON puro — pula */ }
@@ -279,15 +295,19 @@
       var card = a.closest('li, .shopee-search-item-result__item, [data-sqe="item"]') || a;
       var ids = findItemIdInCard(card);
       if (!ids) return;
-      var it = items.get(ids.itemid) || {};
+      var it = items.get(ids.itemid);
       var fb = domStats(card);
-      // badge só aparece se temos ALGUM dado (API/SSR ou o próprio DOM)
-      if (!it.itemid && !fb.price && !fb.sold) return;
-      // grava fallback de volta no map — a top bar agrega daqui
-      if (it.itemid) {
-        if (!it.price && !it.price_min) it.price = fb.price;
-        if (!it.sold && !it.sold_30_days) it.sold = fb.sold;
+      if (!it) {
+        // item só existe no DOM (nenhum payload cobriu) — cria stub
+        // com o que o card mostra pra badge/topbar/ingest funcionarem
+        if (!fb.price && !fb.sold) return;
+        it = { itemid: ids.itemid, shopid: ids.shopid };
+        items.set(ids.itemid, it);
       }
+      // grava fallback de volta no map — a top bar agrega daqui
+      if (!it.price && !it.price_min) it.price = fb.price;
+      if (!it.sold && !it.sold_30_days) it.sold = fb.sold;
+      queueItem(it);
 
       if (!passesFilters(it)) {
         card.classList.add('ssp-dimmed');
