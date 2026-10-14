@@ -41,7 +41,7 @@ def list_niches(db: Session = Depends(get_db)):
             ORDER BY s.stat_date DESC LIMIT 1
         ) s ON TRUE
         WHERE n.is_active
-        ORDER BY n.name
+        ORDER BY s.total_sold_30d DESC NULLS LAST, n.name
     """)).mappings()
     return [dict(r) for r in rows]
 

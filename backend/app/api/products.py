@@ -181,19 +181,23 @@ def opportunity_radar(
     niche_id: uuid.UUID | None = None,
     min_score: float = Query(0, ge=0, le=100),
     trend: str | None = Query(None, pattern="^(rising|stable|falling)$"),
+    sort: str = Query("name", pattern="^(name|score|sold_30d)$"),
     limit: int = Query(50, le=200),
     db: Session = Depends(get_db),
 ):
-    """
-    Radar de Oportunidades — produtos ordenados por opportunity_score.
-    Alimenta a tela principal: decisão em < 30s.
-    """
-    rows = db.execute(text("""
+    """Radar de Oportunidades — ordenação alfabética por padrão,
+    ou por score/vendas via ?sort=."""
+    order = {
+        "name": "LOWER(name) ASC",
+        "score": "opportunity_score DESC NULLS LAST",
+        "sold_30d": "sold_last_30d DESC NULLS LAST",
+    }[sort]
+    rows = db.execute(text(f"""
         SELECT * FROM v_product_radar
         WHERE (CAST(:nid AS uuid) IS NULL OR niche_id = CAST(:nid AS uuid))
           AND COALESCE(opportunity_score, 0) >= :min_score
           AND (CAST(:trend AS text) IS NULL OR trend_label = CAST(:trend AS text))
-        ORDER BY opportunity_score DESC NULLS LAST
+        ORDER BY {order}
         LIMIT :lim
     """), {"nid": str(niche_id) if niche_id else None,
            "min_score": min_score, "trend": trend, "lim": limit}).mappings()

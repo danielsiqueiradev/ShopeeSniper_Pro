@@ -358,7 +358,7 @@ SELECT
     ss.ship_prep_days   AS shop_prep_days,
     ss.is_vulnerable    AS shop_is_vulnerable
 FROM monitored_products p
-JOIN niches n                 ON n.id = p.niche_id
+LEFT JOIN niches n            ON n.id = p.niche_id   -- item monitorado sem nicho continua visível
 JOIN competitor_shops cs      ON cs.shop_id = p.shop_id
 LEFT JOIN LATERAL (
     SELECT * FROM product_daily_snapshots s

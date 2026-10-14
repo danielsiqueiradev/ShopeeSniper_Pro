@@ -83,10 +83,12 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  radar: (params?: { min_score?: number; trend?: string }) => {
+  radar: (params?: { min_score?: number; trend?: string; sort?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.min_score) q.set("min_score", String(params.min_score));
     if (params?.trend) q.set("trend", params.trend);
+    if (params?.sort) q.set("sort", params.sort);
+    if (params?.limit) q.set("limit", String(params.limit));
     return get<RadarProduct[]>(`/products/radar?${q}`);
   },
   salesHistory: (id: string, days = 30) =>
