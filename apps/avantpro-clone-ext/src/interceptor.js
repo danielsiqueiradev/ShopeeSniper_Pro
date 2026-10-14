@@ -187,6 +187,23 @@
     return m ? { shopid: m[1], itemid: m[2] } : null;
   }
 
+  // Circuit breaker: uma chamada proativa tomando 4xx = Shopee
+  // flagrando bot → para TUDO na hora pra não escalar o bloqueio.
+  var sspBackoff = false;
+  function safeApiFetch(url) {
+    if (sspBackoff) return Promise.resolve();
+    return fetch(url, {
+      credentials: 'include',
+      headers: { 'x-api-source': 'pc' }
+    }).then(function (r) {
+      if (r.status >= 400) {
+        sspBackoff = true;
+        console.log('[ShopeeSniper] API ' + r.status +
+                    ' — backoff ativo, chamadas proativas paradas');
+      }
+    }).catch(function () { sspBackoff = true; });
+  }
+
   // Fallback definitivo: pega itemid/shopid dos cards do DOM e chama
   // /api/v4/item/get pra cada um — funciona em qualquer página com grid.
   function fetchDetailsFromDom() {
@@ -194,7 +211,7 @@
     var queue = [];
     var links = document.querySelectorAll(
       'a[href*="-i."], a[href*="/product/"]');
-    for (var i = 0; i < links.length && queue.length < 15; i++) {
+    for (var i = 0; i < links.length && queue.length < 10; i++) {
       var ids = parseIdsFromHref(links[i].href);
       if (ids && !seen[ids.itemid]) {
         seen[ids.itemid] = 1;
@@ -204,11 +221,10 @@
     console.log('[ShopeeSniper] fetch item/get p/ ' + queue.length + ' itens do DOM');
     (function next() {
       var ids = queue.shift();
-      if (!ids) return;
-      fetch('/api/v4/item/get?itemid=' + ids.itemid + '&shopid=' + ids.shopid,
-            { credentials: 'include', headers: { 'x-api-source': 'pc' } })
-        .catch(function () {})
-        .finally(function () { setTimeout(next, 250); });
+      if (!ids || sspBackoff) return;
+      safeApiFetch('/api/v4/item/get?itemid=' + ids.itemid +
+                   '&shopid=' + ids.shopid)
+        .finally(function () { setTimeout(next, 450); });
     })();
   }
 
@@ -227,29 +243,27 @@
     var ids = pdpIds();
     if (!ids || pdpDone[ids.itemid]) return;
     pdpDone[ids.itemid] = 1;
-    var opt = { credentials: 'include', headers: { 'x-api-source': 'pc' } };
     console.log('[ShopeeSniper] PDP: puxando item + loja + reviews 1-3★');
 
     // item completo: models com preço, ctime, stock, historical_sold
     setTimeout(function () {
-      fetch('/api/v4/item/get?itemid=' + ids.itemid + '&shopid=' + ids.shopid,
-            opt).catch(function () {});
+      safeApiFetch('/api/v4/item/get?itemid=' + ids.itemid +
+                   '&shopid=' + ids.shopid);
     }, 800);
 
     // dados do vendedor (card 🏪 do drawer)
     setTimeout(function () {
-      fetch('/api/v4/shop/get_shop_base?shopid=' + ids.shopid +
-            '&need_cancel_rate=true&version=1', opt).catch(function () {});
-    }, 1400);
+      safeApiFetch('/api/v4/shop/get_shop_base?shopid=' + ids.shopid +
+                   '&need_cancel_rate=true&version=1');
+    }, 1600);
 
     // reviews por estrela (type=1|2|3) — pain miner filtra rating_star <= 3
     [1, 2, 3].forEach(function (star, i) {
       setTimeout(function () {
-        fetch('/api/v4/item/get_ratings?itemid=' + ids.itemid +
-              '&shopid=' + ids.shopid +
-              '&limit=20&offset=0&type=' + star + '&filter=0',
-              opt).catch(function () {});
-      }, 2000 + i * 400);
+        safeApiFetch('/api/v4/item/get_ratings?itemid=' + ids.itemid +
+                     '&shopid=' + ids.shopid +
+                     '&limit=20&offset=0&type=' + star + '&filter=0');
+      }, 2400 + i * 600);
     });
   }
 
@@ -264,10 +278,7 @@
         var url = guessApiCall();
         if (url) {
           console.log('[ShopeeSniper] bootstrap:', url);
-          fetch(url, {
-            credentials: 'include',
-            headers: { 'x-api-source': 'pc' }
-          }).catch(function () {});
+          safeApiFetch(url);
         }
       }
       // detalhes sempre: payloads de listagem podem vir magros (sem
