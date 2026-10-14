@@ -284,13 +284,20 @@
       // badge só aparece se temos ALGUM dado (API/SSR ou o próprio DOM)
       if (!it.itemid && !fb.price && !fb.sold) return;
 
-      var host = card;
       if (!passesFilters(it)) {
         card.classList.add('ssp-dimmed');
       } else {
         card.classList.remove('ssp-dimmed');
       }
-      if (host.querySelector('.ssp-badge')) return;
+      if (card.querySelector('.ssp-badge')) return;
+
+      // ancora na coluna de info do card (nome/preço/vendidos) — assim o
+      // badge empilha embaixo do texto tanto em grid quanto em lista
+      var anchor = card.matches('a') ? card
+                 : card.querySelector('a[href*="-i."], a[href*="/product/"]');
+      var host = (anchor && anchor.querySelector('.p-2.flex-1'))
+              || (anchor && anchor.querySelector('[class*="flex-col"]'))
+              || card;
 
       var badge = document.createElement('div');
       badge.className = 'ssp-badge';

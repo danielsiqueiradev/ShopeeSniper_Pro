@@ -33,6 +33,9 @@
 
 /* ---------- badge por card ---------- */
 .ssp-badge {
+  display: block;
+  width: 100%;
+  flex: 0 0 100%;          /* força linha própria em containers flex-row */
   background: #1e1e24;
   border: 1px solid #3a3a42;
   border-left: 3px solid #ee4d2d;
