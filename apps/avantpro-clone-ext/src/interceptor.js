@@ -100,7 +100,7 @@
         payload: payload,
         captured_at: Date.now() / 1000
       }, '*');
-      console.debug('[ShopeeSniper]', route);
+      console.log('[ShopeeSniper]', route);
     } catch (e) { /* nunca quebrar a página */ }
   }
 
@@ -180,6 +180,38 @@
       'a[href*="-i."], a[href*="/product/"]').length >= 4;
   }
 
+  function parseIdsFromHref(href) {
+    var m = href && href.match(/-i\.(\d+)\.(\d+)/);
+    if (m) return { shopid: m[1], itemid: m[2] };
+    m = href && href.match(/\/product\/(\d+)\/(\d+)/);
+    return m ? { shopid: m[1], itemid: m[2] } : null;
+  }
+
+  // Fallback definitivo: pega itemid/shopid dos cards do DOM e chama
+  // /api/v4/item/get pra cada um — funciona em qualquer página com grid.
+  function fetchDetailsFromDom() {
+    var seen = {};
+    var queue = [];
+    var links = document.querySelectorAll(
+      'a[href*="-i."], a[href*="/product/"]');
+    for (var i = 0; i < links.length && queue.length < 15; i++) {
+      var ids = parseIdsFromHref(links[i].href);
+      if (ids && !seen[ids.itemid]) {
+        seen[ids.itemid] = 1;
+        queue.push(ids);
+      }
+    }
+    console.log('[ShopeeSniper] fetch item/get p/ ' + queue.length + ' itens do DOM');
+    (function next() {
+      var ids = queue.shift();
+      if (!ids || window.__SSP_SEEN) return;
+      fetch('/api/v4/item/get?itemid=' + ids.itemid + '&shopid=' + ids.shopid,
+            { credentials: 'include', headers: { 'x-api-source': 'pc' } })
+        .catch(function () {})
+        .finally(function () { setTimeout(next, 250); });
+    })();
+  }
+
   var bootstrapTries = 0;
   function bootstrap() {
     if (window.__SSP_SEEN || bootstrapTries > 3) return;
@@ -187,12 +219,18 @@
     setTimeout(function () {
       if (window.__SSP_SEEN || !hasProductCards()) return;
       var url = guessApiCall();
-      if (!url) return;
-      console.debug('[ShopeeSniper] bootstrap:', url);
-      fetch(url, {
-        credentials: 'include',
-        headers: { 'x-api-source': 'pc' }
-      }).catch(function () {});
+      if (url) {
+        console.log('[ShopeeSniper] bootstrap:', url);
+        fetch(url, {
+          credentials: 'include',
+          headers: { 'x-api-source': 'pc' }
+        }).catch(function () {});
+      }
+      // fallback: se a chamada de listagem não rolou/não pegou nada,
+      // busca os detalhes item a item pelos links do DOM
+      setTimeout(function () {
+        if (!window.__SSP_SEEN) fetchDetailsFromDom();
+      }, 3000);
     }, 2000);
   }
 
@@ -202,5 +240,5 @@
     if (!window.__SSP_SEEN && hasProductCards()) bootstrap();
   }, 4000);
 
-  console.debug('[ShopeeSniper] interceptor ativo');
+  console.log('[ShopeeSniper] interceptor ativo');
 })();
