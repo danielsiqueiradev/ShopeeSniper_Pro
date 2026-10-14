@@ -301,7 +301,11 @@
         // item só existe no DOM (nenhum payload cobriu) — cria stub
         // com o que o card mostra pra badge/topbar/ingest funcionarem
         if (!fb.price && !fb.sold) return;
-        it = { itemid: ids.itemid, shopid: ids.shopid };
+        var lines = (card.innerText || '').split('\n')
+          .map(function (s) { return s.trim(); })
+          .filter(Boolean);
+        it = { itemid: ids.itemid, shopid: ids.shopid,
+               name: (lines[0] || '').slice(0, 200) || null };
         items.set(ids.itemid, it);
       }
       // grava fallback de volta no map — a top bar agrega daqui
