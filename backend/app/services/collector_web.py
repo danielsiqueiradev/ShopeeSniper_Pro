@@ -61,11 +61,13 @@ class WebCollector:
         self._next_at = 0.0
         headers = dict(_HEADERS)
         # Cookies de sessão real (anti-bot exige fingerprint logado)
-        import os
-        cookies = os.getenv("SHOPEE_COOKIES") or getattr(
-            self.cfg, "cookies", "")
+        from app.config import settings
+        cookies = (getattr(self.cfg, "cookies", "")
+                   or settings.shopee_cookies).strip()
         if cookies:
             headers["Cookie"] = cookies
+            headers["X-API-SOURCE"] = "rweb"          # bate com o client real
+            headers["X-Requested-With"] = "XMLHttpRequest"
         self._http = httpx.Client(
             base_url=BASE_URL,
             headers=headers,
@@ -281,7 +283,8 @@ def bind() -> "WebCollector":
     import os
     from app.services import collector
 
-    wc = WebCollector(WebCollectorConfig(proxy_url=os.getenv("SHOPEE_PROXY_URL")))
+    from app.config import settings
+    wc = WebCollector(WebCollectorConfig(proxy_url=settings.shopee_proxy_url))
     collector.fetch_public_item = wc.fetch_public_item
     collector.fetch_item_ratings = wc.fetch_item_ratings
     collector.fetch_shop_info = wc.fetch_shop_info
