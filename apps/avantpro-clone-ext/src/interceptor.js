@@ -93,6 +93,7 @@
 
   function emit(route, payload) {
     try {
+      window.__SSP_SEEN = true;
       window.postMessage({
         source: 'SHOPEE_SNIPER_INTERCEPT',
         route: route,
@@ -149,6 +150,57 @@
     }
     return origSend.apply(this, arguments);
   };
+
+  // ---------- bootstrap ativo ----------
+  // Páginas com SSR (categoria/oficial) renderizam o grid no HTML inicial,
+  // sem chamar a API → nada pra interceptar. Se a página tem cards mas
+  // nenhum payload v4 passou, repetimos a chamada que a própria Shopee
+  // faria (mesma origem, cookies do usuário). O fetch passa pelo nosso
+  // hook, então a resposta alimenta o pipeline normal.
+  function guessApiCall() {
+    var u = location.href;
+    var kw = (u.match(/[?&]keyword=([^&]+)/) || [])[1];
+    var cat = (u.match(/cat\.(\d+)/) || [])[1];
+    if (kw) {
+      return '/api/v4/search/search_items?by=relevancy&keyword=' +
+        decodeURIComponent(kw) +
+        '&limit=60&newest=0&order=desc&page_type=search' +
+        '&scenario=PAGE_GLOBAL_SEARCH&version=2';
+    }
+    if (cat) {
+      return '/api/v4/search/search_items?by=pop&match_id=' + cat +
+        '&limit=60&newest=0&order=desc&page_type=search' +
+        '&scenario=PAGE_CATEGORY_SEARCH&version=2';
+    }
+    return null;
+  }
+
+  function hasProductCards() {
+    return document.querySelectorAll(
+      'a[href*="-i."], a[href*="/product/"]').length >= 4;
+  }
+
+  var bootstrapTries = 0;
+  function bootstrap() {
+    if (window.__SSP_SEEN || bootstrapTries > 3) return;
+    bootstrapTries++;
+    setTimeout(function () {
+      if (window.__SSP_SEEN || !hasProductCards()) return;
+      var url = guessApiCall();
+      if (!url) return;
+      console.debug('[ShopeeSniper] bootstrap:', url);
+      fetch(url, {
+        credentials: 'include',
+        headers: { 'x-api-source': 'pc' }
+      }).catch(function () {});
+    }, 2000);
+  }
+
+  window.addEventListener('load', bootstrap);
+  // SPA: mudança de rota sem reload
+  setInterval(function () {
+    if (!window.__SSP_SEEN && hasProductCards()) bootstrap();
+  }, 4000);
 
   console.debug('[ShopeeSniper] interceptor ativo');
 })();
