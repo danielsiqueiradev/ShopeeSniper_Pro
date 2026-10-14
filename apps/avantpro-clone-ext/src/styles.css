@@ -1,0 +1,96 @@
+/* ShopeeSniper Pro — dark analytical overlay */
+
+.ssp-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px;
+  background: #1b1b1f;
+  color: #eee;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  border-bottom: 2px solid #ee4d2d;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  flex-wrap: wrap;
+}
+
+.ssp-brand { font-weight: 700; color: #ee4d2d; font-size: 13px; }
+
+.ssp-stat { display: flex; flex-direction: column; line-height: 1.1; }
+.ssp-stat b { font-size: 13px; }
+.ssp-stat i { font-style: normal; font-size: 10px; color: #999; }
+
+.ssp-btn {
+  background: #2b2b31; color: #eee; border: 1px solid #444;
+  border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  font-size: 11px; transition: all .15s;
+}
+.ssp-btn:hover { border-color: #ee4d2d; }
+.ssp-btn.on { background: #ee4d2d; border-color: #ee4d2d; color: #fff; }
+
+/* ---------- badge por card ---------- */
+.ssp-badge {
+  background: #1e1e24;
+  border: 1px solid #3a3a42;
+  border-left: 3px solid #ee4d2d;
+  border-radius: 6px;
+  margin: 6px 4px;
+  padding: 7px 9px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 10.5px;
+  color: #ddd;
+  line-height: 1.5;
+}
+
+.ssp-row { display: flex; justify-content: space-between; gap: 8px; }
+.ssp-profit { color: #7fd87f; font-weight: 600; }
+.ssp-cmv { color: #ffb84d; font-weight: 600; }
+.ssp-delta { color: #6cb5ff; }
+
+.ssp-dimmed { opacity: .25; transition: opacity .2s; }
+
+/* ---------- PDP drawer ---------- */
+.ssp-drawer {
+  position: fixed;
+  right: 12px;
+  top: 90px;
+  width: 330px;
+  max-height: 75vh;
+  overflow-y: auto;
+  z-index: 99999;
+  background: #1b1b1f;
+  border: 1px solid #ee4d2d;
+  border-radius: 10px;
+  color: #eee;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5);
+}
+
+.ssp-drawer.collapsed .ssp-drawer-body { display: none; }
+
+.ssp-drawer-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; font-weight: 700; color: #ee4d2d;
+  border-bottom: 1px solid #333; cursor: default;
+}
+.ssp-drawer-head button {
+  background: none; border: none; color: #eee; font-size: 14px; cursor: pointer;
+}
+
+.ssp-drawer-body { padding: 8px 12px; }
+.ssp-section { margin-bottom: 12px; }
+.ssp-section h4 { margin: 0 0 6px; font-size: 12px; color: #ffb84d; }
+
+.ssp-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ssp-table th, .ssp-table td {
+  padding: 3px 5px; border-bottom: 1px solid #333; text-align: left;
+}
+.ssp-table th { color: #999; font-weight: 600; }
+
+.ssp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.ssp-pain { margin: 4px 0 0; padding-left: 16px; }
+.ssp-media { display: flex; flex-wrap: wrap; gap: 4px; }

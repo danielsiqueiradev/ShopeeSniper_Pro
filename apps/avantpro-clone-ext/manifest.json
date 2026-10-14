@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "ShopeeSniper Pro — Market Intelligence",
+  "version": "1.0.0",
+  "description": "Inteligência de mercado Shopee BR: interceptor passivo + overlay analítico (Avantpro-style) + unit economics reverso.",
+  "permissions": ["storage", "downloads"],
+  "host_permissions": [
+    "https://shopee.com.br/*",
+    "https://*.shopee.com.br/*",
+    "http://localhost:8000/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://shopee.com.br/*", "https://*.shopee.com.br/*"],
+      "js": ["src/interceptor.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://shopee.com.br/*", "https://*.shopee.com.br/*"],
+      "js": ["src/content_overlay.js"],
+      "css": ["src/styles.css"],
+      "world": "ISOLATED",
+      "run_at": "document_idle"
+    }
+  ]
+}

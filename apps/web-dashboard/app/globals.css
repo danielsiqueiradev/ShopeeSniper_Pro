@@ -1,0 +1,27 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #121216;
+  color: #eee;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+h1 { color: #ee4d2d; font-size: 22px; }
+.card {
+  background: #1b1b1f; border: 1px solid #2c2c34; border-radius: 10px;
+  padding: 16px; margin: 12px 0;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid #2c2c34; }
+th { color: #999; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge.ouro { background: #7a5200; color: #ffd777; }
+.badge.quente { background: #6b3a00; color: #ffb84d; }
+.badge.morno { background: #25303a; color: #6cb5ff; }
+.badge.fraco { background: #2a2a30; color: #888; }
+input, button {
+  background: #2b2b31; color: #eee; border: 1px solid #444;
+  border-radius: 6px; padding: 8px 12px; font-size: 13px;
+}
+button { cursor: pointer; background: #ee4d2d; border-color: #ee4d2d; }
