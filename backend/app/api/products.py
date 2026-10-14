@@ -1,14 +1,132 @@
 """Endpoints de produtos — radar, série temporal de vendas, pain points."""
 
+import re
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import text
+from pydantic import BaseModel
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import models as m
 
 router = APIRouter()
+
+_quick_collector = None
+
+
+def _quick_fetch(item_id: int, shop_id: int) -> dict:
+    """Tentativa única e rápida de enriquecer o cadastro (timeout curto,
+    sem retries) — o pipeline diário faz a coleta completa depois."""
+    global _quick_collector
+    if _quick_collector is None:
+        from app.services.collector_web import WebCollector, WebCollectorConfig
+        _quick_collector = WebCollector(
+            WebCollectorConfig(timeout=6.0, max_retries=0))
+    return _quick_collector.fetch_public_item(item_id, shop_id)
+
+
+# Formatos aceitos:
+#   https://shopee.com.br/Nome-Produto-i.123456.7890123
+#   https://shopee.com.br/product/123456/7890123
+#   https://shopee.com.br/...?...&itemid=7890123&shopid=123456
+_PATTERNS = [
+    re.compile(r"-i\.(\d+)\.(\d+)"),                       # SEO url
+    re.compile(r"/product/(\d+)/(\d+)"),                   # url canônica
+    re.compile(r"itemid=(\d+).*?shopid=(\d+)"),            # querystring
+]
+
+
+def parse_shopee_url(url: str) -> tuple[int, int] | None:
+    """Extrai (shop_id, item_id) de uma URL da Shopee. None se inválida."""
+    for rx in _PATTERNS:
+        m_ = rx.search(url)
+        if m_:
+            # nos padrões -i. e /product/ o grupo1=shop, grupo2=item;
+            # no querystring o grupo1=item, grupo2=shop
+            a, b = int(m_.group(1)), int(m_.group(2))
+            return (b, a) if "itemid" in rx.pattern else (a, b)
+    return None
+
+
+class MonitorIn(BaseModel):
+    url: str | None = None
+    item_id: int | None = None
+    shop_id: int | None = None
+    niche_id: uuid.UUID | None = None
+
+
+@router.post("/monitor")
+def monitor_product(body: MonitorIn, db: Session = Depends(get_db)):
+    """Registra um anúncio específico para monitoramento diário."""
+    if body.url:
+        parsed = parse_shopee_url(body.url)
+        if not parsed:
+            raise HTTPException(
+                400, "URL inválida. Formatos aceitos: "
+                     "'...-i.<shopid>.<itemid>' ou '/product/<shopid>/<itemid>'")
+        shop_id, item_id = parsed
+    elif body.item_id and body.shop_id:
+        shop_id, item_id = body.shop_id, body.item_id
+    else:
+        raise HTTPException(400, "Informe url ou (item_id + shop_id)")
+
+    shop = db.scalar(select(m.CompetitorShop)
+                     .where(m.CompetitorShop.shop_id == shop_id))
+    if not shop:
+        shop = m.CompetitorShop(shop_id=shop_id, name=f"shop_{shop_id}")
+        db.add(shop)
+
+    product = db.scalar(select(m.MonitoredProduct).where(
+        m.MonitoredProduct.item_id == item_id,
+        m.MonitoredProduct.shop_id == shop_id))
+    already = product is not None
+    if not product:
+        product = m.MonitoredProduct(
+            item_id=item_id, shop_id=shop_id,
+            name=f"item_{item_id}",
+            product_url=f"https://shopee.com.br/product/{shop_id}/{item_id}",
+            niche_id=body.niche_id)
+        db.add(product)
+    product.monitoring = True
+    if body.niche_id:
+        product.niche_id = body.niche_id
+    db.flush()
+
+    # Primeira coleta best-effort (timeout ~6s, sem retry) — se o collector
+    # estiver indisponível, o worker diário preenche no próximo ciclo.
+    first_snapshot = False
+    try:
+        item = _quick_fetch(item_id, shop_id)
+        product.name = item.get("name") or product.name
+        product.image_url = item.get("image_url")
+        db.merge(m.ProductDailySnapshot(
+            product_id=product.id, snapshot_date=date.today(),
+            price=item["price"],
+            price_before_discount=item.get("price_before_discount"),
+            stock=item.get("stock"),
+            historical_sold=item["historical_sold"],
+            liked_count=item.get("liked_count"),
+            comment_count=item.get("comment_count"),
+            rating_star=item.get("rating_star"),
+            rating_count=item.get("rating_count")))
+        first_snapshot = True
+    except Exception:
+        pass
+
+    db.commit()
+    return {
+        "product_id": str(product.id),
+        "item_id": item_id,
+        "shop_id": shop_id,
+        "product_url": product.product_url,
+        "already_monitored": already,
+        "first_snapshot": first_snapshot,
+        "note": None if first_snapshot else
+                "registrado — dados serão coletados no próximo ciclo do worker",
+    }
 
 
 @router.get("/radar")

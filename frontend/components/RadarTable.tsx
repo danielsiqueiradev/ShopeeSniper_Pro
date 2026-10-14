@@ -1,16 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import type { RadarProduct } from "@/lib/api";
+import { shopeeUrl } from "@/lib/api";
 import { ScoreBadge } from "./ScoreBadge";
 import { TrendChip } from "./TrendChip";
+import Link from "next/link";
 
 const fmtBRL = (v: number | null) =>
   v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export function RadarTable({ products }: { products: RadarProduct[] }) {
-  const router = useRouter();
-
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-800">
       <table className="w-full text-sm">
@@ -22,12 +21,13 @@ export function RadarTable({ products }: { products: RadarProduct[] }) {
             <th className="px-4 py-3 text-right">Receita est. 30d</th>
             <th className="px-4 py-3 text-left">Seller</th>
             <th className="px-4 py-3 text-left">Score</th>
+            <th className="px-4 py-3 text-right">Ações</th>
           </tr>
         </thead>
         <tbody>
           {products.map((p) => (
             <tr key={p.product_id}
-                onClick={() => router.push(`/products/${p.product_id}`)}
+                onClick={() => window.open(shopeeUrl(p.shop_id, p.item_id), "_blank")}
                 className="border-t border-slate-800 hover:bg-slate-900 cursor-pointer">
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3 max-w-[340px]">
@@ -64,6 +64,19 @@ export function RadarTable({ products }: { products: RadarProduct[] }) {
                 </div>
               </td>
               <td className="px-4 py-3"><ScoreBadge score={p.opportunity_score} /></td>
+              <td className="px-4 py-3 text-right whitespace-nowrap">
+                <Link href={`/products/${p.product_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs text-sky-400 hover:text-sky-300 mr-3">
+                  Análise
+                </Link>
+                <a href={shopeeUrl(p.shop_id, p.item_id)}
+                   target="_blank" rel="noopener noreferrer"
+                   onClick={(e) => e.stopPropagation()}
+                   className="text-xs text-brand-500 hover:text-brand-600">
+                  Shopee ↗
+                </a>
+              </td>
             </tr>
           ))}
         </tbody>
