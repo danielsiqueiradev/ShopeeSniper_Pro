@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     shopee_partner_key: str = ""
     shopee_env: str = "prod"                      # prod | test
     shopee_redirect_url: str = "https://app.shopeeprofit.ai/auth/callback"
+    shopee_proxy_url: str | None = None
+    # Cookies da sessão logada no browser (collector passa como usuário real)
+    shopee_cookies: str = ""
 
     # Fee defaults — calculadora reversa (override por simulação)
     default_commission_pct: float = 14.0

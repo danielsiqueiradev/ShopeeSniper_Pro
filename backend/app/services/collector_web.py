@@ -59,9 +59,16 @@ class WebCollector:
         self.cfg = config or WebCollectorConfig()
         self._interval = 60.0 / self.cfg.rpm
         self._next_at = 0.0
+        headers = dict(_HEADERS)
+        # Cookies de sessão real (anti-bot exige fingerprint logado)
+        import os
+        cookies = os.getenv("SHOPEE_COOKIES") or getattr(
+            self.cfg, "cookies", "")
+        if cookies:
+            headers["Cookie"] = cookies
         self._http = httpx.Client(
             base_url=BASE_URL,
-            headers=_HEADERS,
+            headers=headers,
             timeout=self.cfg.timeout,
             proxy=self.cfg.proxy_url,
             follow_redirects=True,

@@ -11,7 +11,7 @@ export default function Dashboard() {
   const [topNiches, setTopNiches] = useState<Niche[]>([]);
   const [minScore, setMinScore] = useState(0);
   const [trend, setTrend] = useState("");
-  const [sort, setSort] = useState("name");
+  const [sort, setSort] = useState("score");
   const [limit, setLimit] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [showMonitor, setShowMonitor] = useState(false);
@@ -78,9 +78,9 @@ export default function Dashboard() {
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">
-          <option value="name">A–Z</option>
-          <option value="score">maior score</option>
+          <option value="score">melhores oportunidades</option>
           <option value="sold_30d">mais vendidos 30d</option>
+          <option value="name">A–Z</option>
         </select>
         <label className="text-sm text-slate-400 flex items-center gap-2">
           score ≥ {minScore}
