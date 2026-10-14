@@ -212,11 +212,53 @@
     })();
   }
 
+  // ---------- PDP: dados ricos que a página só carrega lazy ----------
+  // Reviews e shop só descem quando o usuário rola até as seções.
+  // A gente dispara as MESMAS chamadas que a página faria (cookies do
+  // usuário, mesmo origin) — a resposta passa pelo hook e alimenta tudo.
+  var pdpDone = {};
+  function pdpIds() {
+    var m = location.href.match(/-i\.(\d+)\.(\d+)/) ||
+            location.href.match(/\/product\/(\d+)\/(\d+)/);
+    return m ? { shopid: m[1], itemid: m[2] } : null;
+  }
+
+  function fetchPdpData() {
+    var ids = pdpIds();
+    if (!ids || pdpDone[ids.itemid]) return;
+    pdpDone[ids.itemid] = 1;
+    var opt = { credentials: 'include', headers: { 'x-api-source': 'pc' } };
+    console.log('[ShopeeSniper] PDP: puxando item + loja + reviews 1-3★');
+
+    // item completo: models com preço, ctime, stock, historical_sold
+    setTimeout(function () {
+      fetch('/api/v4/item/get?itemid=' + ids.itemid + '&shopid=' + ids.shopid,
+            opt).catch(function () {});
+    }, 800);
+
+    // dados do vendedor (card 🏪 do drawer)
+    setTimeout(function () {
+      fetch('/api/v4/shop/get_shop_base?shopid=' + ids.shopid +
+            '&need_cancel_rate=true&version=1', opt).catch(function () {});
+    }, 1400);
+
+    // reviews por estrela (type=1|2|3) — pain miner filtra rating_star <= 3
+    [1, 2, 3].forEach(function (star, i) {
+      setTimeout(function () {
+        fetch('/api/v4/item/get_ratings?itemid=' + ids.itemid +
+              '&shopid=' + ids.shopid +
+              '&limit=20&offset=0&type=' + star + '&filter=0',
+              opt).catch(function () {});
+      }, 2000 + i * 400);
+    });
+  }
+
   var bootstrapTries = 0;
   function bootstrap() {
     if (bootstrapTries > 3) return;
     bootstrapTries++;
     setTimeout(function () {
+      fetchPdpData();
       if (!hasProductCards()) return;
       if (!window.__SSP_SEEN) {
         var url = guessApiCall();
@@ -238,8 +280,9 @@
   }
 
   window.addEventListener('load', bootstrap);
-  // SPA: mudança de rota sem reload
+  // SPA: mudança de rota sem reload — PDP nova também dispara fetchPdpData
   setInterval(function () {
+    fetchPdpData();
     if (!window.__SSP_SEEN && hasProductCards()) bootstrap();
   }, 4000);
 

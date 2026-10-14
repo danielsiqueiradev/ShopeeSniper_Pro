@@ -99,7 +99,19 @@
     }
     if (route.indexOf('get_ratings') !== -1) {
       var data = (p && p.data) || {};
-      if (data.itemid && data.ratings) ratings.set(String(data.itemid), data.ratings);
+      // append + dedupe: 3 chamadas (1★,2★,3★) chegam em payload separados
+      var rId = data.itemid ||
+        (data.ratings && data.ratings[0] && data.ratings[0].itemid);
+      if (rId && data.ratings) {
+        var key = String(rId);
+        var cur = ratings.get(key) || [];
+        var seen = {};
+        cur.concat(data.ratings).forEach(function (r) {
+          var rk = r.rkey || (r.userid + ':' + (r.ctime || 0));
+          if (!seen[rk]) { seen[rk] = 1; cur.push(r); }
+        });
+        ratings.set(key, cur);
+      }
     }
 
     schedulePaint();
