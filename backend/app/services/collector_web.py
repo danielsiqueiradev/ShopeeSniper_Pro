@@ -181,6 +181,53 @@ class WebCollector:
             "product_count": d.get("item_count") or d.get("total_items"),
         }
 
+    def resolve_item_shop(self, item_id: int,
+                          promotion_id: int | None = None,
+                          source_url: str | None = None) -> int | None:
+        """
+        Resolve o shop_id de um item quando a URL de origem não o traz.
+
+        Estratégias:
+          1. source_url (link curto shope.ee ou redirect) — segue redirects
+             e extrai -i.shop.item do URL final
+          2. flash_sale — pagina flash_sale_get_items até achar o itemid
+        """
+        import re
+
+        if source_url:
+            final = self.resolve_redirect(source_url)
+            if final:
+                m = re.search(r"-i\.(\d+)\.(\d+)", final)
+                if m:
+                    return int(m.group(1))
+
+        if promotion_id:
+            for offset in range(0, 660, 60):
+                try:
+                    data = self._get("/flash_sale/flash_sale_get_items", {
+                        "limit": 60, "offset": offset, "order": "",
+                        "promotionid": promotion_id, "shopid": 0,
+                        "sort_soldout": "true", "version": 2,
+                        "with_dp_items": "true", "need_personalize": "false",
+                    })
+                except Exception:
+                    break
+                items = data.get("items") or []
+                for it in items:
+                    if it.get("itemid") == item_id:
+                        return it.get("shopid")
+                if len(items) < 60:
+                    break
+        return None
+
+    def resolve_redirect(self, url: str) -> str | None:
+        """Segue redirects de um link curto e devolve a URL final."""
+        try:
+            resp = self._http.get(url)
+            return str(resp.url)
+        except Exception:
+            return None
+
     def search_niche(self, keyword: str, sort: str = "sales",
                      limit: int = 50) -> list[dict]:
         """Busca pública por keyword -> top anúncios do nicho (discovery)."""

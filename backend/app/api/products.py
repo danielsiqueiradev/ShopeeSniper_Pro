@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,37 +18,60 @@ router = APIRouter()
 _quick_collector = None
 
 
-def _quick_fetch(item_id: int, shop_id: int) -> dict:
-    """Tentativa única e rápida de enriquecer o cadastro (timeout curto,
-    sem retries) — o pipeline diário faz a coleta completa depois."""
+def _get_collector():
+    """Singleton lazy do WebCollector em modo interativo (timeout curto,
+    sem retries longos) — o processo da API não passa pelo bind() do worker."""
     global _quick_collector
     if _quick_collector is None:
         from app.services.collector_web import WebCollector, WebCollectorConfig
         _quick_collector = WebCollector(
             WebCollectorConfig(timeout=6.0, max_retries=0))
-    return _quick_collector.fetch_public_item(item_id, shop_id)
+    return _quick_collector
+
+
+def _quick_fetch(item_id: int, shop_id: int) -> dict:
+    """Tentativa única e rápida de enriquecer o cadastro — o pipeline
+    diário faz a coleta completa depois."""
+    return _get_collector().fetch_public_item(item_id, shop_id)
 
 
 # Formatos aceitos:
-#   https://shopee.com.br/Nome-Produto-i.123456.7890123
-#   https://shopee.com.br/product/123456/7890123
-#   https://shopee.com.br/...?...&itemid=7890123&shopid=123456
-_PATTERNS = [
-    re.compile(r"-i\.(\d+)\.(\d+)"),                       # SEO url
-    re.compile(r"/product/(\d+)/(\d+)"),                   # url canônica
-    re.compile(r"itemid=(\d+).*?shopid=(\d+)"),            # querystring
+#   https://shopee.com.br/Nome-Produto-i.123456.7890123       (shop+item)
+#   https://shopee.com.br/product/123456/7890123              (shop+item)
+#   https://shopee.com.br/...?itemid=7890123&shopid=123456    (shop+item)
+#   https://shopee.com.br/flash_sale?fromItem=789&promotionId=N  (item só)
+_PATTERNS_FULL = [
+    re.compile(r"-i\.(\d+)\.(\d+)"),                        # grupo1=shop, grupo2=item
+    re.compile(r"/product/(\d+)/(\d+)"),
+    re.compile(r"itemid=(\d+).*?shopid=(\d+)"),             # grupo1=item, grupo2=shop
 ]
+_RX_FROM_ITEM = re.compile(r"fromItem=(\d+)")
+_RX_PROMOTION = re.compile(r"promotionId=(\d+)")
 
 
-def parse_shopee_url(url: str) -> tuple[int, int] | None:
-    """Extrai (shop_id, item_id) de uma URL da Shopee. None se inválida."""
-    for rx in _PATTERNS:
+@dataclass
+class ParsedRef:
+    shop_id: int | None
+    item_id: int | None
+    promotion_id: int | None = None
+
+
+def parse_shopee_url(url: str) -> ParsedRef | None:
+    """Extrai referências de uma URL da Shopee. None se nada reconhecido."""
+    for rx in _PATTERNS_FULL:
         m_ = rx.search(url)
         if m_:
-            # nos padrões -i. e /product/ o grupo1=shop, grupo2=item;
-            # no querystring o grupo1=item, grupo2=shop
             a, b = int(m_.group(1)), int(m_.group(2))
-            return (b, a) if "itemid" in rx.pattern else (a, b)
+            shop, item = (b, a) if "itemid" in rx.pattern else (a, b)
+            return ParsedRef(shop_id=shop, item_id=item)
+
+    # flash_sale / entry links: só item_id (shop resolvido depois)
+    m_item = _RX_FROM_ITEM.search(url)
+    if m_item:
+        promo = _RX_PROMOTION.search(url)
+        return ParsedRef(
+            shop_id=None, item_id=int(m_item.group(1)),
+            promotion_id=int(promo.group(1)) if promo else None)
     return None
 
 
@@ -63,15 +87,38 @@ def monitor_product(body: MonitorIn, db: Session = Depends(get_db)):
     """Registra um anúncio específico para monitoramento diário."""
     if body.url:
         parsed = parse_shopee_url(body.url)
-        if not parsed:
+        if parsed is None:
+            # Link curto (shope.ee) ou formato desconhecido — segue
+            # o redirect e tenta de novo com a URL final
+            try:
+                final_url = _get_collector().resolve_redirect(body.url)
+                parsed = parse_shopee_url(final_url) if final_url else None
+            except Exception:
+                pass
+        if not parsed or parsed.item_id is None:
             raise HTTPException(
-                400, "URL inválida. Formatos aceitos: "
-                     "'...-i.<shopid>.<itemid>' ou '/product/<shopid>/<itemid>'")
-        shop_id, item_id = parsed
+                400, "URL inválida. Aceito: página do produto "
+                     "(…-i.<shopid>.<itemid>), /product/<shopid>/<itemid>, "
+                     "link curto ou flash_sale (?fromItem=…&promotionId=…)")
+        shop_id, item_id, promotion_id = (
+            parsed.shop_id, parsed.item_id, parsed.promotion_id)
     elif body.item_id and body.shop_id:
-        shop_id, item_id = body.shop_id, body.item_id
+        shop_id, item_id, promotion_id = body.shop_id, body.item_id, None
     else:
         raise HTTPException(400, "Informe url ou (item_id + shop_id)")
+
+    # URL sem shop_id (flash_sale, link curto) -> resolve pelo collector
+    if shop_id is None:
+        try:
+            shop_id = _get_collector().resolve_item_shop(
+                item_id, promotion_id, source_url=body.url)
+        except Exception:
+            shop_id = None
+        if shop_id is None:
+            raise HTTPException(
+                422, "Item identificado mas a loja não foi resolvida "
+                     "automaticamente. Abra o anúncio e cole a URL da "
+                     "página do produto (formato …-i.<shopid>.<itemid>).")
 
     shop = db.scalar(select(m.CompetitorShop)
                      .where(m.CompetitorShop.shop_id == shop_id))

@@ -84,7 +84,7 @@ export default function Dashboard() {
             value={monitorUrl}
             onChange={(e) => setMonitorUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submitMonitor()}
-            placeholder="Cole a URL do anúncio Shopee (…-i.shopid.itemid)"
+            placeholder="Cole a URL do anúncio Shopee (página do produto ou flash_sale)"
             className="flex-1 min-w-[280px] bg-slate-950 border border-slate-700 rounded
                        px-3 py-2 text-sm text-white focus:border-brand-500 outline-none"
           />
