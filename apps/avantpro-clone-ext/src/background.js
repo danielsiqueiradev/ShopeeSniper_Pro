@@ -131,9 +131,11 @@ async function ingestItems(items) {
   if (!mapped.length) return;
   const c = await cfg();
 
+  console.log(`[ShopeeSniper BG] ingest de ${mapped.length} itens`);
+
   // 1) backend FastAPI (normaliza + empurra pro Supabase via RPC)
   try {
-    await fetch(`${c.backendUrl}/ingest/payload`, {
+    const r = await fetch(`${c.backendUrl}/ingest/payload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -142,19 +144,30 @@ async function ingestItems(items) {
         captured_at: Date.now() / 1000
       })
     });
-  } catch (e) { /* backend offline — segue pro direto */ }
+    console.log(`[ShopeeSniper BG] backend /ingest → ${r.status}`);
+  } catch (e) {
+    console.log('[ShopeeSniper BG] backend offline:', String(e).slice(0, 120));
+  }
 
   // 2) Supabase direto (se configurado)
   if (c.supabaseUrl && c.supabaseKey) {
-    await fetch(`${c.supabaseUrl}/rest/v1/rpc/ingest_shopee_batch`, {
-      method: 'POST',
-      headers: {
-        'apikey': c.supabaseKey,
-        'Authorization': `Bearer ${c.supabaseKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ payload: { items: mapped } })
-    }).catch(() => {});
+    try {
+      const r = await fetch(`${c.supabaseUrl}/rest/v1/rpc/ingest_shopee_batch`, {
+        method: 'POST',
+        headers: {
+          'apikey': c.supabaseKey,
+          'Authorization': `Bearer ${c.supabaseKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ payload: { items: mapped } })
+      });
+      if (!r.ok) console.log(`[ShopeeSniper BG] supabase RPC → ${r.status}:`, (await r.text()).slice(0, 200));
+      else console.log('[ShopeeSniper BG] supabase RPC → ok');
+    } catch (e) {
+      console.log('[ShopeeSniper BG] supabase RPC falhou:', String(e).slice(0, 120));
+    }
+  } else {
+    console.log('[ShopeeSniper BG] supabaseUrl/supabaseKey não configurados');
   }
 }
 
