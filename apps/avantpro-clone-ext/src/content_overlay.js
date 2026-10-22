@@ -498,7 +498,12 @@
         window.scrollTo({ top: h * i / steps, behavior: 'smooth' });
         if (i >= steps) {
           clearInterval(timer);
+          // a página terminou de carregar os dados lazy — hora de
+          // julgar os cards e trackar as oportunidades 💎
           setTimeout(function () {
+            var nFound = autoTrackOpportunities();
+            var tb = bar.querySelector('#ssp-enrich');
+            if (tb && nFound) tb.textContent = '🔎 +' + nFound + ' 📌';
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }, 1500);
         }
@@ -670,14 +675,45 @@
     // menos UMA fraqueza explorável do concorrente (mesmos sinais do
     // ⚔️ Plano de Entrada). Sem fraqueza não é brecha — é espelar.
     if (filters.opp) {
-      var s2 = it.sold || 0;
-      var pr = it.price || it.price_min || 0;
-      var demand = s2 >= OPP.minSold && s2 <= OPP.maxSold &&
-                   pr >= OPP.minPrice && pr <= OPP.maxPrice;
-      var wk = entryWeakness(it);
-      ok = ok && demand && (wk.fortes + wk.meds) > 0;
+      ok = ok && isOppCandidate(it);
     }
     return ok;
+  }
+
+  // varre os cards da página e marca 📌 Track nos que passam no
+  // filtro 💎 — o 🔎 Varrer termina a rolagem chamando isso, então
+  // o usuário sai com a lista de candidatos já persistida no Supabase.
+  // Cap de 15/varrida pra não inflar a lista com lixo em nicho grande.
+  function autoTrackOpportunities() {
+    var added = 0;
+    var links = document.querySelectorAll('a[href*="-i."], a[href*="/product/"]');
+    links.forEach(function (a) {
+      if (added >= 15) return;
+      var ids = parseIds(a.href);
+      if (!ids || isTracked(ids.itemid)) return;
+      var it = items.get(ids.itemid);
+      if (!it || !isOppCandidate(it)) return;
+      tracked[ids.itemid] = { name: it.name || '', shopid: it.shopid,
+                              at: Date.now() };
+      pushTrack(ids.itemid, true, it);
+      added++;
+    });
+    if (added) {
+      saveTracked(); updatePins(); refreshTopBar();
+      console.log('[ShopeeSniper] auto-track: ' + added + ' oportunidades 📌');
+    }
+    return added;
+  }
+
+  // o mesmo critério do filtro 💎 — reaproveitado pelo auto-track
+  // do 🔎 Varrer e pelo passesFilters
+  function isOppCandidate(it) {
+    var s = it.sold || it.sold_30_days || 0;
+    var pr = it.price || it.price_min || 0;
+    if (!(s >= OPP.minSold && s <= OPP.maxSold &&
+          pr >= OPP.minPrice && pr <= OPP.maxPrice)) return false;
+    var wk = entryWeakness(it);
+    return (wk.fortes + wk.meds) > 0;
   }
 
   // fraquezas exploráveis visíveis no card/listing (shop só quando o
