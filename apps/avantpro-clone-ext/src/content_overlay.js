@@ -1123,6 +1123,7 @@
     var rc = (it.item_rating || {}).rating_count;
     var rcount = Array.isArray(rc)
       ? rc.reduce(function (a, b) { return a + (+b || 0); }, 0) : rc;
+    if (rcount == null) rcount = pdpReviewCountDom();
     var moves = [], fortes = 0, meds = 0;
     function add(sev, tag, title, act) {
       moves.push({ sev: sev, tag: tag, title: title, act: act });
@@ -1240,6 +1241,16 @@
       (lis ? '<ul class="ssp-plan">' + lis + '</ul>' : '') +
       (shop.rating_star == null ? '<i class="ssp-hint">🔎 Varrer até a loja pra detectar falhas de atendimento</i>' : '') +
       '</div>';
+  }
+
+  // PDP mostra "N Avaliações" como texto — fallback quando o payload
+  // não traz item_rating.rating_count
+  function pdpReviewCountDom() {
+    var m = ((document.body && document.body.innerText) || '')
+      .match(/(\d+(?:[.,]\d+)?)\s*(mil\s*)?Avalia/i);
+    if (!m) return null;
+    var v = parseFloat(m[1].replace('.', '').replace(',', '.'));
+    return Math.round(v * (m[2] ? 1000 : 1));
   }
 
   // distribuição de estrelas raspada do DOM da PDP — os filtros de
