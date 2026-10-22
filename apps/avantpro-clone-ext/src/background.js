@@ -72,6 +72,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }));
     return;
   }
+
+  if (msg.type === 'SSP_OPEN_TABS') {
+    // ritual diário do 📌: abre cada PDP em aba de fundo com delay —
+    // chrome.tabs.create ignora popup blocker, e o espaçamento deixa a
+    // página carregar get_pc antes da próxima abrir (gentil c/ anti-bot)
+    (msg.urls || []).slice(0, 20).forEach((u, i) => {
+      setTimeout(() => {
+        chrome.tabs.create({ url: u, active: false }).catch(() => {});
+      }, i * 1200);
+    });
+    return;
+  }
 });
 
 function sendToTab(tabId, message) {

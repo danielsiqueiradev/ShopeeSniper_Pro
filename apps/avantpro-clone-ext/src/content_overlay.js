@@ -554,18 +554,31 @@
 
   function renderTrackedPanel(p) {
     var ids = Object.keys(tracked);
+    var urls = ids.map(function (id) {
+      return 'https://shopee.com.br/product/' + (tracked[id].shopid || '0') +
+             '/' + id;
+    });
     p.innerHTML = ids.length
-      ? ids.map(function (id) {
+      ? '<div class="ssp-trk-row"><button id="ssp-open-all" class="ssp-btn"' +
+        ' title="abre cada PDP em aba de fundo (1,2s entre cada) — grava ' +
+        'o snapshot diário de todos">🔁 Abrir todos (' + ids.length +
+        ')</button></div>' +
+        ids.map(function (id, i) {
           var t = tracked[id];
-          var url = 'https://shopee.com.br/product/' + (t.shopid || '0') +
-                    '/' + id;
           return '<div class="ssp-trk-row">' +
-            '<a href="' + url + '" target="_blank" rel="noopener">' +
+            '<a href="' + urls[i] + '" target="_blank" rel="noopener">' +
               (t.name || 'item ' + id) + '</a>' +
             '<button class="ssp-trk-x" data-id="' + id +
               '" title="parar de acompanhar">✕</button></div>';
         }).join('')
       : '<i>Nenhum item trackado — abra uma PDP e clique 📌 Track no drawer</i>';
+    var openAll = p.querySelector('#ssp-open-all');
+    if (openAll) {
+      openAll.onclick = function () {
+        safeSend({ type: 'SSP_OPEN_TABS', urls: urls });
+        openAll.textContent = '🔁 abrindo ' + urls.length + ' abas…';
+      };
+    }
     p.querySelectorAll('.ssp-trk-x').forEach(function (x) {
       x.onclick = function () {
         var xid = x.dataset.id;
