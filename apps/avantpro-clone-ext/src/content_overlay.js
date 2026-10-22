@@ -1165,7 +1165,13 @@
       add('med', '🧓', 'Anúncio velho (' + Math.round(it.age_days / 30) + 'm) e nota fraca',
           'ele acomoda — teu listing do zero chega sem histórico de reclamação');
     }
-    // 🏪 loja mal avaliada
+    // � internacional — frete longo é a maior brecha explorável:
+    // tu compra nacional e entrega em dias, ele entrega em semanas
+    if (isIntl(it)) {
+      add('med', '🌎', 'Vendedor internacional — entrega de semanas',
+          'fornecedor nacional + envio em 3-5d vira o teu pitch de venda');
+    }
+    // �🏪 loja mal avaliada
     if (shop.rating_star != null && shop.rating_star < 4.7) {
       add('med', '🏪', 'Loja dele avaliada ' + shop.rating_star.toFixed(2) + '★',
           'reputação é teu diferencial: atendimento rápido + review inicial forte');
