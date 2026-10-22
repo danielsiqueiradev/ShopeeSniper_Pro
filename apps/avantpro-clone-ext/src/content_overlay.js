@@ -730,6 +730,11 @@
     var rev30 = s30 * price;
     var gross = grossAfterShopee(price);
     var cmv = cmvTeto(price, 0.20);
+    // rating do produto (estrelas + nº de avaliações)
+    var rstar = it.item_rating && it.item_rating.rating_star;
+    var rcount = it.item_rating && it.item_rating.rating_count;
+    if (Array.isArray(rcount)) rcount = rcount[0];
+    var starTxt = rstar != null ? Number(rstar).toFixed(1) : '—';
 
     var chips = breachChips(it);
     var breachRow = chips.length
@@ -742,6 +747,7 @@
         (age != null ? ' (' + age + 'd)' : '') + '</span>' +
       '<span>⚡ ' + vel30 + '/d (30d) vs ' + velLife + '/d</span></div>' +
       '<div class="ssp-row"><span>💰 30d: ' + brl(rev30) + '</span>' +
+      '<span>⭐ ' + starTxt + (rcount ? ' (' + n(rcount) + ')' : '') + '</span>' +
       '<span>📦 ' + n(it.stock) + ' un.</span></div>' +
       '<div class="ssp-row ssp-profit"><span>🧮 Pós-Shopee: ' + brl(gross) + '</span></div>' +
       '<div class="ssp-row ssp-cmv"><span>🎯 CMV Teto (20%): ' + brl(cmv) + '</span></div>' +
