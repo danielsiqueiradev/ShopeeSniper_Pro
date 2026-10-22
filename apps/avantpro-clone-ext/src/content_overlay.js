@@ -1004,10 +1004,11 @@
     var rc = (it.item_rating || {}).rating_count;
     var rcount = Array.isArray(rc)
       ? rc.reduce(function (a, b) { return a + (+b || 0); }, 0) : rc;
-    var moves = [], fortes = 0;
+    var moves = [], fortes = 0, meds = 0;
     function add(sev, tag, title, act) {
       moves.push({ sev: sev, tag: tag, title: title, act: act });
       if (sev === 'alta') fortes++;
+      else if (sev === 'med') meds++;
     }
 
     // 💬 chat — seller que ignora cliente sangra conversão
@@ -1081,7 +1082,7 @@
     } else if (fortes >= 2) {
       verdict = '🟢 ESPAÇO PRA ENTRAR — ' + fortes + ' falhas fortes + demanda provada';
       cls = 'ok';
-    } else if (fortes === 1 || moves.length >= 3) {
+    } else if (fortes === 1 || meds >= 2 || moves.length >= 3) {
       verdict = '🟡 DÁ PRA BRIGAR — confirma a saída: 📌 tracka e acompanha 1 semana';
       cls = 'warn';
     } else {
