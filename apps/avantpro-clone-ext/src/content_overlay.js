@@ -758,9 +758,13 @@
   function entryWeakness(it) {
     var shop = shops.get(String(it.shopid)) || {};
     var rating = (it.item_rating || {}).rating_star;
+    var rc = (it.item_rating || {}).rating_count;
+    if (Array.isArray(rc)) rc = rc[0];
     var w = { fortes: 0, meds: 0 };
     if (rating != null && rating < 4.4) w.fortes++;
     else if (rating != null && rating < 4.6) w.meds++;
+    else if (rating != null && rating >= 4.7 && rc != null &&
+             rc > 0 && rc < 15) w.meds++;
     if (shop.response_rate != null && shop.response_rate < 45) w.fortes++;
     else if (shop.response_rate != null && shop.response_rate < 70) w.meds++;
     if (shop.rating_star != null && shop.rating_star < 4.7) w.meds++;
@@ -1137,6 +1141,13 @@
       add(rating < 4.4 ? 'alta' : 'med', '⭐',
           'Nota ' + rating.toFixed(1) + '★ em ' + n(rcount) + ' avaliações',
           'versão corrigida no título/fotos te faz parecer a escolha óbvia');
+    }
+    // ⭐ prova social zerada — nota alta com pouquíssimas avaliações
+    // é incumbente ainda não consolidado, fácil de ultrapassar
+    if (rating != null && rating >= 4.7 && rcount != null &&
+        rcount > 0 && rcount < 15) {
+      add('med', '⭐', 'Nota alta mas só ' + n(rcount) + ' avaliações',
+          'prova social fraca — tuas primeiras 15-20 reviews boas te colocam na frente');
     }
     // 😤 top reclamação → fix direto
     var pains = painCounts(itemid);
