@@ -844,6 +844,7 @@
           (isTracked(itemid) ? '📌 Trackado' : '📌 Track') + '</button>' +
         '<button id="ssp-toggle">▾</button></span></div>' +
       '<div class="ssp-drawer-body">' +
+        entryPlanHTML(it, itemid) +
         skuTableHTML(it) +
         sellerCardHTML(it) +
         painMinerHTML(itemid) +
@@ -936,17 +937,15 @@
     'Foto': ['diferente', 'foto', 'enganoso']
   };
 
-  // distribuição de estrelas raspada do DOM da PDP — os filtros de
-  // review ("1 Estrela (1,6mil)") renderizam como texto, não precisa
-  // de chamada de API pra montar o mapa de insatisfação
-  function starDistFromDom() {
-    var t = (document.body && document.body.innerText) || '';
-    var out = {}, m, re = /([1-5])\s*Estrela\s*\(([^)]+)\)/g;
-    while ((m = re.exec(t))) out[m[1] + '★'] = m[2];
-    return out;
-  }
+  // como atacar cada categoria de reclamação na entrada
+  var PAIN_ACT = {
+    'Qualidade': 'fornecedor com material melhor — e foto real provando',
+    'Tamanho': 'tabela de medidas + modelo de referência nas fotos',
+    'Entrega': 'embalagem reforçada — e mostra ela na foto, vira diferencial',
+    'Foto': 'foto própria do produto real — o dele engana e o cliente sente'
+  };
 
-  function painMinerHTML(itemid) {
+  function painCounts(itemid) {
     var rs = ratings.get(itemid) || [];
     var neg = rs.filter(function (r) { return (r.rating_star || 5) <= 3; });
     var counts = {};
@@ -958,16 +957,142 @@
         }
       }
     });
-    var lines = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })
-      .map(function (c) { return '<li>' + c + ': <b>' + counts[c] + '×</b></li>'; }).join('');
+    var keys = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+    return { neg: neg.length,
+             top: keys.map(function (k) { return [k, counts[k]]; }) };
+  }
+
+  // ⚔️ Plano de Entrada: transforma cada falha detectada do concorrente
+  // em ação concreta. Falha forte = coisa que realmente derruba venda
+  // (chat ignorado, nota baixa com reclamação recorrente).
+  function entryPlanHTML(it, itemid) {
+    var shop = shops.get(String(it.shopid)) || {};
+    var price = it.price || it.price_min || 0;
+    var sold = it.sold || it.sold_30_days || 0;
+    var rating = (it.item_rating || {}).rating_star;
+    var rc = (it.item_rating || {}).rating_count;
+    var rcount = Array.isArray(rc)
+      ? rc.reduce(function (a, b) { return a + (+b || 0); }, 0) : rc;
+    var moves = [], fortes = 0;
+    function add(sev, tag, title, act) {
+      moves.push({ sev: sev, tag: tag, title: title, act: act });
+      if (sev === 'alta') fortes++;
+    }
+
+    // 💬 chat — seller que ignora cliente sangra conversão
+    if (shop.response_rate != null && shop.response_rate < 70) {
+      add(shop.response_rate < 45 ? 'alta' : 'med', '💬',
+          'Chat ' + shop.response_rate + '% — ele ignora cliente',
+          'responde em minutos que o algoritmo te ranqueia acima');
+    }
+    // ⭐ produto que vende reclamando
+    if (rating != null && rating < 4.6) {
+      add(rating < 4.4 ? 'alta' : 'med', '⭐',
+          'Nota ' + rating.toFixed(1) + '★ em ' + n(rcount) + ' avaliações',
+          'versão corrigida no título/fotos te faz parecer a escolha óbvia');
+    }
+    // 😤 top reclamação → fix direto
+    var pains = painCounts(itemid);
+    if (pains.top.length) {
+      add('alta', '😤', 'Reclamam de ' + pains.top[0][0] +
+          ' (' + pains.top[0][1] + '× nas negativas)',
+          PAIN_ACT[pains.top[0][0]] || 'corrige isso e anuncia a correção');
+    }
+    // 📦 anúncio magro
+    var nVar = (it.models || []).length;
+    if (nVar && nVar <= 2) {
+      add('med', '📦', 'Só ' + nVar + ' variação(ões) no anúncio',
+          'kits/opções (3-6 variações) sobem teu ticket e pegam quem quer volume');
+    }
+    var nImg = (it.images || []).length;
+    if (nImg && nImg < 6) {
+      add('med', '📸', 'Poucas fotos (' + nImg + ')',
+          '8-9 fotos + vídeo curto — conversão na Shopee é guerra de imagem');
+    }
+    // 🔥 anúncio novo vendendo = demanda quente não consolidada
+    if (it.age_days != null && it.age_days <= 150 && sold >= 500) {
+      add('info', '🔥', 'Anúncio de ' + it.age_days + 'd e já vendeu ' + n(sold),
+          'demanda quente em consolidação — entra antes dele travar o ranking');
+    }
+    if (it.age_days != null && it.age_days >= 400 && rating != null && rating < 4.5) {
+      add('med', '🧓', 'Anúncio velho (' + Math.round(it.age_days / 30) + 'm) e nota fraca',
+          'ele acomoda — teu listing do zero chega sem histórico de reclamação');
+    }
+    // 🏪 loja mal avaliada
+    if (shop.rating_star != null && shop.rating_star < 4.7) {
+      add('med', '🏪', 'Loja dele avaliada ' + shop.rating_star.toFixed(2) + '★',
+          'reputação é teu diferencial: atendimento rápido + review inicial forte');
+    }
+    // 💸 economia — a conta tem que fechar antes de brigar
+    var liq = price ? grossAfterShopee(price) : 0;
+    var cmv = price ? cmvTeto(price, 0.20) : 0;
+    var econ = price
+      ? '<div class="ssp-grid">' +
+        '<span>Sobras/un: <b class="ssp-profit">' + brl(liq) + '</b></span>' +
+        '<span>Fornecedor até: <b class="ssp-cmv">' + brl(cmv) + '</b></span>' +
+        '<span>Vol. 30d: <b>' + n(sold) + '</b></span>' +
+        '<span>Receita 30d: <b>' + brl(sold * price) + '</b></span></div>'
+      : '';
+    if (price && cmv <= 0) {
+      add('alta', '💸', 'Conta não fecha a 20% — preço só cobre taxas',
+          'baixa margem alvo ou negocia fornecedor bem mais barato');
+    } else if (price && liq < 5) {
+      add('med', '💸', 'Sobra só ' + brl(liq) + '/un',
+          'margem fina — qualquer frete/erro do fornecedor te quebra');
+    }
+
+    // veredito
+    var verdict, cls;
+    if (shop.rating_star == null && shop.response_rate == null &&
+        rating == null) {
+      verdict = '🔍 Dados magros — 🔎 Varrer + rola até loja/avaliações pra calibrar';
+      cls = 'dim';
+    } else if (fortes >= 2) {
+      verdict = '🟢 ESPAÇO PRA ENTRAR — ' + fortes + ' falhas fortes + demanda provada';
+      cls = 'ok';
+    } else if (fortes === 1 || moves.length >= 3) {
+      verdict = '🟡 DÁ PRA BRIGAR — confirma a saída: 📌 tracka e acompanha 1 semana';
+      cls = 'warn';
+    } else {
+      verdict = '🔴 Incumbente sólido — só entra com produto/preço claramente melhor';
+      cls = 'bad';
+    }
+
+    var lis = moves.map(function (m) {
+      return '<li class="sev-' + m.sev + '"><b>' + m.tag + ' ' + m.title +
+             '</b><span>' + m.act + '</span></li>';
+    }).join('');
+    return '<div class="ssp-section"><h4>⚔️ Plano de Entrada</h4>' +
+      econ +
+      '<p class="ssp-verdict ' + cls + '">' + verdict + '</p>' +
+      (lis ? '<ul class="ssp-plan">' + lis + '</ul>' : '') +
+      (shop.rating_star == null ? '<i class="ssp-hint">🔎 Varrer até a loja pra detectar falhas de atendimento</i>' : '') +
+      '</div>';
+  }
+
+  // distribuição de estrelas raspada do DOM da PDP — os filtros de
+  // review ("1 Estrela (1,6mil)") renderizam como texto, não precisa
+  // de chamada de API pra montar o mapa de insatisfação
+  function starDistFromDom() {
+    var t = (document.body && document.body.innerText) || '';
+    var out = {}, m, re = /([1-5])\s*Estrela\s*\(([^)]+)\)/g;
+    while ((m = re.exec(t))) out[m[1] + '★'] = m[2];
+    return out;
+  }
+
+  function painMinerHTML(itemid) {
+    var pains = painCounts(itemid);
+    var lines = pains.top.map(function (t) {
+      return '<li>' + t[0] + ': <b>' + t[1] + '×</b></li>';
+    }).join('');
     var dist = starDistFromDom();
     var distTxt = ['3★', '2★', '1★'].filter(function (s) { return dist[s]; })
       .map(function (s) { return s + ' ' + dist[s]; }).join(' · ');
     return '<div class="ssp-section"><h4>😤 Pain Miner (1–3★)</h4>' +
-      '<p>' + neg.length + ' reviews negativas capturadas' +
+      '<p>' + pains.neg + ' reviews negativas capturadas' +
       (distTxt ? ' · ' + distTxt : '') + '</p>' +
       '<ul class="ssp-pain">' + (lines || '<li>sem padrões ainda</li>') + '</ul>' +
-      (neg.length < 10 ? '<i class="ssp-hint">clica nas estrelas 1–3 na seção de avaliações pra minerar mais</i>' : '') +
+      (pains.neg < 10 ? '<i class="ssp-hint">clica nas estrelas 1–3 na seção de avaliações pra minerar mais</i>' : '') +
       '</div>';
   }
 
