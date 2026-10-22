@@ -55,6 +55,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => {});
     return;
   }
+
+  if (msg.type === 'SSP_TRACK') {
+    // upsert/delete de item trackado no Supabase (sync entre PCs)
+    syncTrack(msg.item).catch(() => {});
+    return;
+  }
+
+  if (msg.type === 'SSP_TRACK_LIST') {
+    fetchTracked()
+      .then((list) => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_RESULT', items: list
+      }))
+      .catch(() => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_RESULT', items: []
+      }));
+    return;
+  }
 });
 
 function sendToTab(tabId, message) {
@@ -185,6 +202,47 @@ async function ingestItems(items) {
   } else {
     console.log('[ShopeeSniper BG] supabaseUrl/supabaseKey não configurados');
   }
+}
+
+// 📌 tracking: upsert/delete na tabela tracked_items (sync entre PCs)
+async function syncTrack(item) {
+  const c = await cfg();
+  if (!c.supabaseUrl || !c.supabaseKey || !item || !item.itemid) return;
+  const headers = {
+    'apikey': c.supabaseKey,
+    'Authorization': `Bearer ${c.supabaseKey}`,
+    'Content-Type': 'application/json'
+  };
+  if (item.tracked) {
+    await fetch(`${c.supabaseUrl}/rest/v1/tracked_items`, {
+      method: 'POST',
+      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        item_id: Number(item.itemid),
+        shop_id: item.shopid ? Number(item.shopid) : null,
+        name: item.name || null,
+        updated_at: new Date().toISOString()
+      })
+    }).then((r) => {
+      if (!r.ok) console.log('[ShopeeSniper BG] track upsert → ' + r.status);
+    }).catch(() => {});
+  } else {
+    await fetch(`${c.supabaseUrl}/rest/v1/tracked_items?item_id=eq.${item.itemid}`, {
+      method: 'DELETE',
+      headers
+    }).catch(() => {});
+  }
+}
+
+async function fetchTracked() {
+  const c = await cfg();
+  if (!c.supabaseUrl || !c.supabaseKey) return [];
+  const r = await fetch(
+    `${c.supabaseUrl}/rest/v1/tracked_items?select=item_id,shop_id,name,created_at&order=created_at.desc`,
+    { headers: { 'apikey': c.supabaseKey, 'Authorization': `Bearer ${c.supabaseKey}` } }
+  );
+  if (!r.ok) return [];
+  return r.json();
 }
 
 async function fetchDelta(itemid) {

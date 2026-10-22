@@ -53,6 +53,19 @@
     saveTracked();
     updatePins();
     refreshTopBar();
+    pushTrack(id, !!tracked[id], it);
+  }
+
+  // sync com Supabase: localStorage é cache, o banco é a fonte de
+  // verdade entre PCs
+  function pushTrack(id, on, it) {
+    it = it || tracked[id] || {};
+    try {
+      chrome.runtime.sendMessage({
+        type: 'SSP_TRACK',
+        item: { itemid: id, shopid: it.shopid, name: it.name, tracked: on }
+      }, function () { void chrome.runtime.lastError; });
+    } catch (e) {}
   }
   // 📌 nos badges dos itens trackados
   function updatePins() {
@@ -509,8 +522,10 @@
       : '<i>Nenhum item trackado — abra uma PDP e clique 📌 Track no drawer</i>';
     p.querySelectorAll('.ssp-trk-x').forEach(function (x) {
       x.onclick = function () {
-        delete tracked[x.dataset.id];
+        var xid = x.dataset.id;
+        delete tracked[xid];
         saveTracked(); updatePins(); refreshTopBar();
+        pushTrack(xid, false, {});
         renderTrackedPanel(p);
       };
     });
@@ -735,8 +750,25 @@
         '<span>📈 24h: <i>carregando…</i></span></div>';
   }
 
-  // delta respondido pelo background
+  // lista remota de trackados: merge com localStorage — itens que só
+  // existem local sobem pro server, itens de outros PCs baixam pra cá
   chrome.runtime.onMessage.addListener(function (msg) {
+    if (msg && msg.type === 'SSP_TRACK_RESULT') {
+      var remoteIds = {};
+      (msg.items || []).forEach(function (r) {
+        var rid = String(r.item_id);
+        remoteIds[rid] = 1;
+        if (!tracked[rid]) {
+          tracked[rid] = { name: r.name || '', shopid: r.shop_id,
+                           at: new Date(r.created_at).getTime() };
+        }
+      });
+      Object.keys(tracked).forEach(function (id) {
+        if (!remoteIds[id]) pushTrack(id, true, tracked[id]);
+      });
+      saveTracked(); updatePins(); refreshTopBar();
+      return;
+    }
     if (msg && msg.type === 'SSP_DELTA_RESULT') {
       var el = document.querySelector('.ssp-delta[data-itemid="' + msg.itemid + '"]');
       if (el) {
@@ -953,5 +985,7 @@
   setTimeout(harvestEmbeddedData, 3000); // scripts podem hidratar depois
   // SSR hidrata em etapas — re-harvest periódico pega os que chegam tarde
   setInterval(harvestEmbeddedData, 10000);
+  // baixa os itens 📌 do Supabase (sync entre PCs) → SSP_TRACK_RESULT
+  safeSend({ type: 'SSP_TRACK_LIST' });
   schedulePaint();
 })();
