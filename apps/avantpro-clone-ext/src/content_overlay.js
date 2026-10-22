@@ -88,7 +88,7 @@
   // reais da própria conta de vendedor.
   // ======================================================================
   var FEE_DEFAULT = { comm: 14, fs: 6, cap: 100, fixed: 4.0,
-                      fixedThr: 8.0, tax: 6, ads: 8, margin: 20 };
+                      fixedThr: 8.0, tax: 0, ads: 0, margin: 20 };
   function loadFees() {
     var out = {};
     try {
@@ -103,10 +103,19 @@
   }
   var FEES = loadFees();
 
+  function feeBreakdown(price) {
+    return {
+      comm: Math.min(price * FEES.comm / 100, FEES.cap),
+      fixed: price < FEES.fixedThr ? price / 2 : FEES.fixed,
+      fs: price * FEES.fs / 100,
+      tax: price * FEES.tax / 100,
+      ads: price * FEES.ads / 100
+    };
+  }
+
   function feeTotal(price) {
-    var comm = Math.min(price * FEES.comm / 100, FEES.cap);
-    var fixed = price < FEES.fixedThr ? price / 2 : FEES.fixed;
-    return comm + price * (FEES.fs + FEES.tax + FEES.ads) / 100 + fixed;
+    var f = feeBreakdown(price);
+    return f.comm + f.fixed + f.fs + f.tax + f.ads;
   }
 
   function grossAfterShopee(price) { return price - feeTotal(price); }
@@ -1089,12 +1098,20 @@
     // 💸 economia — a conta tem que fechar antes de brigar
     var liq = price ? grossAfterShopee(price) : 0;
     var cmv = price ? cmvTeto(price) : 0;
+    var f = price ? feeBreakdown(price) : null;
+    var feeTxt = f
+      ? 'Taxas/un: <b>' + brl(f.comm + f.fixed + f.fs + f.tax + f.ads) + '</b>' +
+        ' (comm ' + brl(f.comm) + ' · fixa ' + brl(f.fixed) +
+        ' · frete ' + brl(f.fs) + ' · imposto ' + brl(f.tax) +
+        (f.ads ? ' · ads ' + brl(f.ads) : '') + ')'
+      : '';
     var econ = price
       ? '<div class="ssp-grid">' +
         '<span>Sobras/un: <b class="ssp-profit">' + brl(liq) + '</b></span>' +
         '<span>Fornecedor até: <b class="ssp-cmv">' + brl(cmv) + '</b></span>' +
         '<span>Vol. 30d: <b>' + n(sold) + '</b></span>' +
-        '<span>Receita 30d: <b>' + brl(sold * price) + '</b></span></div>'
+        '<span>Receita 30d: <b>' + brl(sold * price) + '</b></span></div>' +
+        '<i class="ssp-hint">' + feeTxt + '</i>'
       : '';
     if (price && cmv <= 0) {
       add('alta', '💸', 'Conta não fecha a 20% — preço só cobre taxas',
