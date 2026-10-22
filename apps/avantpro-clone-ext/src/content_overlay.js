@@ -242,7 +242,16 @@
           if (it[k] !== undefined && it[k] !== null) old[k] = it[k];
         }
       }
-      queueItem(items.get(String(id)));
+      var merged = items.get(String(id));
+      // nome chegou agora e o item tá 📌 → propaga pro painel e pro
+      // Supabase (itens trackados sem nome ficavam "item 58269...")
+      if (merged.name && tracked[String(id)] &&
+          tracked[String(id)].name !== merged.name) {
+        tracked[String(id)].name = merged.name;
+        saveTracked();
+        pushTrack(String(id), true, merged);
+      }
+      queueItem(merged);
     });
 
     // shop/ratings podem vir embutidos em qualquer payload (pdp/get_pc
@@ -660,6 +669,21 @@
     return parseIds(a.href);
   }
 
+  function findLinkInCard(card) {
+    return card.matches('a[href*="-i."], a[href*="/product/"]')
+      ? card
+      : card.querySelector('a[href*="-i."], a[href*="/product/"]');
+  }
+
+  // o slug do link carrega o nome do produto: /Boneca-Fada-i.1.2 →
+  // "Boneca Fada". Fallback quando o card não renderiza texto útil.
+  function nameFromUrl(href) {
+    var m = href && href.match(/shopee\.com\.br\/([^/]+)-i\.\d+/);
+    if (!m) return '';
+    var slug = decodeURIComponent(m[1]).replace(/-/g, ' ').trim();
+    return slug.length > 4 ? slug.slice(0, 200) : '';
+  }
+
   // vendedor internacional: frete longo = fraqueza explorável por local.
   // Fontes: shop_location/flags do payload + faixa "VENDEDOR
   // INTERNACIONAL" lida do card no DOM (decorateVisibleCards seta intl_dom)
@@ -706,8 +730,8 @@
       if (!ids || isTracked(ids.itemid)) return;
       var it = items.get(ids.itemid);
       if (!it || !isOppCandidate(it)) return;
-      tracked[ids.itemid] = { name: it.name || '', shopid: it.shopid,
-                              at: Date.now() };
+      tracked[ids.itemid] = { name: it.name || nameFromUrl(a.href) || '',
+                              shopid: it.shopid, at: Date.now() };
       pushTrack(ids.itemid, true, it);
       added++;
     });
@@ -783,8 +807,10 @@
                    !/com cupom|Frete|Indicado|OFF$/i.test(s) &&
                    !/^[📅⚡💰📦🧮🎯📈🚩⭐]/.test(s);
           });
+        var cardLink = findLinkInCard(card);
         it = { itemid: ids.itemid, shopid: ids.shopid,
-               name: (lines[0] || '').slice(0, 200) || null };
+               name: (lines[0] || '').slice(0, 200) ||
+                     nameFromUrl(cardLink && cardLink.href) || null };
         items.set(ids.itemid, it);
       }
       // faixa "VENDEDOR INTERNACIONAL" do próprio card — sinal de brecha
