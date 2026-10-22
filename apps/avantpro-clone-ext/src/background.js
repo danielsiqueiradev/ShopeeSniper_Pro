@@ -78,16 +78,27 @@ function sendToTab(tabId, message) {
   if (tabId) chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
-async function ingest(route, payload) {
+// backend FastAPI é opcional (Supabase direto basta). Quando offline,
+// pausa 60s entre sondas — evita spam de "Failed to fetch" na Network
+let backendDownUntil = 0;
+async function postBackend(body) {
+  if (Date.now() < backendDownUntil) return;
   const c = await cfg();
-  // 1) backend FastAPI (normaliza + opcionalmente empurra pro Supabase)
   try {
     await fetch(`${c.backendUrl}/ingest/payload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ route, payload, captured_at: Date.now() / 1000 })
+      body: JSON.stringify(body)
     });
-  } catch (e) { /* backend offline — segue pra tentar Supabase direto */ }
+  } catch (e) {
+    backendDownUntil = Date.now() + 60000;
+  }
+}
+
+async function ingest(route, payload) {
+  const c = await cfg();
+  // 1) backend FastAPI (normaliza + opcionalmente empurra pro Supabase)
+  await postBackend({ route, payload, captured_at: Date.now() / 1000 });
 
   // 2) Supabase direto (se configurado)
   if (c.supabaseUrl && c.supabaseKey) {
@@ -167,20 +178,11 @@ async function ingestItems(items) {
   console.log(`[ShopeeSniper BG] ingest de ${mapped.length} itens`);
 
   // 1) backend FastAPI (normaliza + empurra pro Supabase via RPC)
-  try {
-    const r = await fetch(`${c.backendUrl}/ingest/payload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        route: 'overlay/normalized-items',
-        payload: { items: mapped },
-        captured_at: Date.now() / 1000
-      })
-    });
-    console.log(`[ShopeeSniper BG] backend /ingest → ${r.status}`);
-  } catch (e) {
-    console.log('[ShopeeSniper BG] backend offline:', String(e).slice(0, 120));
-  }
+  await postBackend({
+    route: 'overlay/normalized-items',
+    payload: { items: mapped },
+    captured_at: Date.now() / 1000
+  });
 
   // 2) Supabase direto (se configurado)
   if (c.supabaseUrl && c.supabaseKey) {
