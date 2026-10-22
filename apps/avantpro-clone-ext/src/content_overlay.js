@@ -748,7 +748,11 @@
     var hist = it.historical_sold || 0;
     var price = it.price || it.price_min || fb.price || 0;
     var age = it.age_days;
-    var vel30 = (s30 / 30).toFixed(1);
+    // janela real do sold_30_days: anúncio de 5 dias vendeu os 30d dele
+    // em 5 dias, não 30 — dividir por 30 subestimava a velocidade
+    var win = age != null ? Math.min(30, Math.max(age, 1)) : 30;
+    var vel30 = (s30 / win).toFixed(1);
+    var velLbl = win < 30 ? '/d (' + win + 'd)' : '/d (30d)';
     var velLife = age ? (hist / Math.max(age, 1)).toFixed(1) : '—';
     var rev30 = s30 * price;
     var gross = grossAfterShopee(price);
@@ -768,7 +772,7 @@
     return '' +
       '<div class="ssp-row"><span>📅 ' + (it.created_date || '—') +
         (age != null ? ' (' + age + 'd)' : '') + '</span>' +
-      '<span>⚡ ' + vel30 + '/d (30d) vs ' + velLife + '/d</span></div>' +
+      '<span>⚡ ' + vel30 + velLbl + ' vs ' + velLife + '/d</span></div>' +
       '<div class="ssp-row"><span>💰 30d: ' + brl(rev30) + '</span>' +
       '<span>⭐ ' + starTxt + (rcount ? ' (' + n(rcount) + ')' : '') + '</span>' +
       '<span>📦 ' + n(it.stock) + ' un.</span></div>' +
