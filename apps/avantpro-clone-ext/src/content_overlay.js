@@ -345,15 +345,27 @@
 
   // fila de itens normalizados pra ingest (backend + Supabase via background).
   // flush a cada 5s — dá tempo do merge/DOM enriquecer antes de enviar.
+  // Fingerprint: só re-envia se algum campo útil mudou — evita spam de
+  // RPC a cada paint e impede dados antigos regravarem o banco.
   var ingestQueue = new Map();
+  var sentFp = {};
   function queueItem(it) {
     var id = it.itemid || it.item_id;
-    if (id) ingestQueue.set(String(id), it);
+    if (!id) return;
+    var fp = [it.name, it.price, it.sold, it.sold_30_days,
+              it.historical_sold, it.stock, it.ctime,
+              (it.item_rating || {}).rating_star].join('|');
+    if (sentFp[String(id)] === fp) return;
+    it.__fp = fp;
+    ingestQueue.set(String(id), it);
   }
   setInterval(function () {
     if (!ingestQueue.size) return;
     var list = Array.from(ingestQueue.values());
     ingestQueue.clear();
+    list.forEach(function (it) {
+      sentFp[String(it.itemid || it.item_id)] = it.__fp;
+    });
     safeSend({ type: 'SSP_INGEST_ITEMS', items: list });
   }, 5000);
 
