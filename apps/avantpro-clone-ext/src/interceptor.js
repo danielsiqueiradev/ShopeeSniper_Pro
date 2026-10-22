@@ -68,9 +68,10 @@
     for (var i = 0; i < ROUTES.length; i++) {
       if (url.indexOf(ROUTES[i]) !== -1) return ROUTES[i];
     }
-    // catch-all: qualquer resposta /api/v4/ é clonada; se tiver dados de
-    // item/shop/ratings dentro, vira evento (resiste a mudança de rota)
-    if (url.indexOf('/api/v4/') !== -1) return url;
+    // catch-all: qualquer resposta /api/ é clonada (v2, v4, futuras); se
+    // tiver dados de item/shop/ratings dentro, vira evento — resiste a
+    // mudança de versão de rota (get_ratings migrou pra v2, por ex.)
+    if (url.indexOf('/api/') !== -1) return url;
     return null;
   }
 
@@ -190,7 +191,21 @@
   // Circuit breaker: uma chamada proativa tomando 4xx = Shopee
   // flagrando bot → para TUDO na hora pra não escalar o bloqueio.
   var sspBackoff = false;
-  function safeApiFetch(url) {
+
+  // Modo proativo é OPT-IN: fetches extras são o que o anti-bot enxerga.
+  // Padrão = 100% passivo (só lê respostas que a própria página pede).
+  // Pra reativar: localStorage.ssp_proactive = '1' e recarregar.
+  function proactiveEnabled() {
+    try { return localStorage.getItem('ssp_proactive') === '1'; }
+    catch (e) { return false; }
+  }
+
+  function jitter(minMs, maxMs) {
+    return minMs + Math.random() * (maxMs - minMs);
+  }
+
+  function safeApiFetch(url, force) {
+    if (!force && !proactiveEnabled()) return Promise.resolve();
     if (sspBackoff) return Promise.resolve();
     return fetch(url, {
       credentials: 'include',
@@ -206,12 +221,12 @@
 
   // Fallback definitivo: pega itemid/shopid dos cards do DOM e chama
   // /api/v4/item/get pra cada um — funciona em qualquer página com grid.
-  function fetchDetailsFromDom() {
+  function fetchDetailsFromDom(force) {
     var seen = {};
     var queue = [];
     var links = document.querySelectorAll(
       'a[href*="-i."], a[href*="/product/"]');
-    for (var i = 0; i < links.length && queue.length < 10; i++) {
+    for (var i = 0; i < links.length && queue.length < 8; i++) {
       var ids = parseIdsFromHref(links[i].href);
       if (ids && !seen[ids.itemid]) {
         seen[ids.itemid] = 1;
@@ -223,8 +238,8 @@
       var ids = queue.shift();
       if (!ids || sspBackoff) return;
       safeApiFetch('/api/v4/item/get?itemid=' + ids.itemid +
-                   '&shopid=' + ids.shopid)
-        .finally(function () { setTimeout(next, 450); });
+                   '&shopid=' + ids.shopid, force)
+        .finally(function () { setTimeout(next, jitter(1500, 3500)); });
     })();
   }
 
@@ -239,7 +254,8 @@
     return m ? { shopid: m[1], itemid: m[2] } : null;
   }
 
-  function fetchPdpData() {
+  function fetchPdpData(force) {
+    if (!force && !proactiveEnabled()) return;
     var ids = pdpIds();
     if (!ids || pdpDone[ids.itemid]) return;
     pdpDone[ids.itemid] = 1;
@@ -248,22 +264,22 @@
     // item completo: models com preço, ctime, stock, historical_sold
     setTimeout(function () {
       safeApiFetch('/api/v4/item/get?itemid=' + ids.itemid +
-                   '&shopid=' + ids.shopid);
-    }, 800);
+                   '&shopid=' + ids.shopid, force);
+    }, jitter(1000, 2500));
 
     // dados do vendedor (card 🏪 do drawer)
     setTimeout(function () {
       safeApiFetch('/api/v4/shop/get_shop_base?shopid=' + ids.shopid +
-                   '&need_cancel_rate=true&version=1');
-    }, 1600);
+                   '&need_cancel_rate=true&version=1', force);
+    }, jitter(3000, 5000));
 
     // reviews por estrela (type=1|2|3) — pain miner filtra rating_star <= 3
     [1, 2, 3].forEach(function (star, i) {
       setTimeout(function () {
         safeApiFetch('/api/v4/item/get_ratings?itemid=' + ids.itemid +
                      '&shopid=' + ids.shopid +
-                     '&limit=20&offset=0&type=' + star + '&filter=0');
-      }, 2400 + i * 600);
+                     '&limit=20&offset=0&type=' + star + '&filter=0', force);
+      }, jitter(6000, 9000) + i * jitter(1200, 2200));
     });
   }
 
@@ -283,7 +299,7 @@
       }
       // detalhes sempre: payloads de listagem podem vir magros (sem
       // price/sold/ctime) — item/get traz o item completo por card
-      if (!window.__SSP_DETAILS_DONE) {
+      if (proactiveEnabled() && !window.__SSP_DETAILS_DONE) {
         window.__SSP_DETAILS_DONE = true;
         setTimeout(fetchDetailsFromDom, 1500);
       }
@@ -296,6 +312,13 @@
     fetchPdpData();
     if (!window.__SSP_SEEN && hasProductCards()) bootstrap();
   }, 4000);
+
+  // Chamadas proativas (nossa própria fetch à API) são detectáveis de
+  // qualquer jeito: a Shopee assina requests (sz_token etc.) e um fetch
+  // sem assinatura é flagrado na hora. Garante flag morta mesmo se o
+  // usuário tinha ativado antes — enriquecimento agora é 100% passivo
+  // (botão 🔎 Varrer rola a página pra ela mesma pedir os dados).
+  try { localStorage.removeItem('ssp_proactive'); } catch (e) {}
 
   console.log('[ShopeeSniper] interceptor ativo');
 })();

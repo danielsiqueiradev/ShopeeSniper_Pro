@@ -52,8 +52,43 @@
 .ssp-profit { color: #7fd87f; font-weight: 600; }
 .ssp-cmv { color: #ffb84d; font-weight: 600; }
 .ssp-delta { color: #6cb5ff; }
+.ssp-breach { color: #ff9d5c; font-weight: 600; }
 
 .ssp-dimmed { opacity: .25; transition: opacity .2s; }
+
+/* ---------- painel de config 💎 (elemento separado, abaixo da top bar) ---------- */
+.ssp-cfg {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: #1b1b1f; color: #ccc;
+  border-bottom: 1px dashed #444;
+  font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px;
+}
+.ssp-cfg input {
+  width: 62px; background: #2b2b31; border: 1px solid #444;
+  border-radius: 4px; color: #eee; padding: 2px 6px; font-size: 11px;
+}
+.ssp-cfg input:focus { border-color: #ee4d2d; outline: none; }
+
+/* ---------- tracking 📌 ---------- */
+.ssp-pin { float: right; font-size: 11px; }
+.ssp-drawer-head #ssp-track {
+  background: #2b2b31; color: #eee; border: 1px solid #444;
+  border-radius: 4px; padding: 1px 7px; cursor: pointer; font-size: 11px;
+}
+.ssp-drawer-head #ssp-track:hover { border-color: #ee4d2d; }
+.ssp-trkpanel { flex-direction: column; align-items: stretch; gap: 3px; }
+.ssp-trk-row { display: flex; justify-content: space-between; gap: 8px; }
+.ssp-trk-row a {
+  color: #6cb5ff; text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ssp-trk-row a:hover { text-decoration: underline; }
+.ssp-trk-x {
+  background: none; border: none; color: #888; cursor: pointer;
+  font-size: 11px; flex-shrink: 0;
+}
+.ssp-trk-x:hover { color: #ee4d2d; }
 
 /* ---------- PDP drawer ---------- */
 .ssp-drawer {

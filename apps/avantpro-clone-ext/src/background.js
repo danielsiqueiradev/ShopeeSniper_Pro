@@ -197,5 +197,8 @@ async function fetchDelta(itemid) {
   });
   if (!resp.ok) return null;
   const rows = await resp.json();
-  return rows.length ? rows[0].sales_on_date : null;
+  if (!rows.length || rows[0].sales_on_date == null) return null;
+  // normaliza por dias decorridos — coleta irregular não pode inflar o 24h
+  const days = rows[0].days_since_prev || 1;
+  return Math.round(rows[0].sales_on_date / days);
 }
