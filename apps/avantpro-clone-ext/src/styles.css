@@ -130,5 +130,6 @@
 .ssp-table th { color: #999; font-weight: 600; }
 
 .ssp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.ssp-hint { display: block; color: #888; font-size: 10px; margin-top: 4px; font-style: italic; }
 .ssp-pain { margin: 4px 0 0; padding-left: 16px; }
 .ssp-media { display: flex; flex-wrap: wrap; gap: 4px; }

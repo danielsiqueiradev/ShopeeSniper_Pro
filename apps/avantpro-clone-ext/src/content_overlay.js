@@ -917,13 +917,16 @@
 
   function sellerCardHTML(it) {
     var shop = shops.get(String(it.shopid)) || {};
+    var loc = shop.location || it.shop_location || it.shop_loc || '—';
+    var missing = shop.rating_star == null;
     return '<div class="ssp-section"><h4>🏪 Vendedor</h4><div class="ssp-grid">' +
       '<span>Rating: <b>' + (shop.rating_star != null ? shop.rating_star.toFixed(2) + '★' : '—') + '</b></span>' +
       '<span>Chat: <b>' + (shop.response_rate != null ? shop.response_rate + '%' : '—') + '</b></span>' +
       '<span>Resp. média: <b>' + (shop.response_time || '—') + '</b></span>' +
       '<span>Seguidores: <b>' + n(shop.follower_count) + '</b></span>' +
-      '<span>Local: <b>' + (shop.location || '—') + '</b></span>' +
-      '</div></div>';
+      '<span>Local: <b>' + loc + '</b></span>' +
+      '</div>' + (missing ? '<i class="ssp-hint">🔎 Varrer/rolar até a loja carrega o resto</i>' : '') +
+      '</div>';
   }
 
   var PAIN_KW = {
@@ -932,6 +935,16 @@
     'Entrega': ['atraso', 'demorou', 'embalagem', 'amassado'],
     'Foto': ['diferente', 'foto', 'enganoso']
   };
+
+  // distribuição de estrelas raspada do DOM da PDP — os filtros de
+  // review ("1 Estrela (1,6mil)") renderizam como texto, não precisa
+  // de chamada de API pra montar o mapa de insatisfação
+  function starDistFromDom() {
+    var t = (document.body && document.body.innerText) || '';
+    var out = {}, m, re = /([1-5])\s*Estrela\s*\(([^)]+)\)/g;
+    while ((m = re.exec(t))) out[m[1] + '★'] = m[2];
+    return out;
+  }
 
   function painMinerHTML(itemid) {
     var rs = ratings.get(itemid) || [];
@@ -947,9 +960,15 @@
     });
     var lines = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })
       .map(function (c) { return '<li>' + c + ': <b>' + counts[c] + '×</b></li>'; }).join('');
+    var dist = starDistFromDom();
+    var distTxt = ['3★', '2★', '1★'].filter(function (s) { return dist[s]; })
+      .map(function (s) { return s + ' ' + dist[s]; }).join(' · ');
     return '<div class="ssp-section"><h4>😤 Pain Miner (1–3★)</h4>' +
-      '<p>' + neg.length + ' reviews negativas capturadas</p>' +
-      '<ul class="ssp-pain">' + (lines || '<li>sem padrões ainda</li>') + '</ul></div>';
+      '<p>' + neg.length + ' reviews negativas capturadas' +
+      (distTxt ? ' · ' + distTxt : '') + '</p>' +
+      '<ul class="ssp-pain">' + (lines || '<li>sem padrões ainda</li>') + '</ul>' +
+      (neg.length < 10 ? '<i class="ssp-hint">clica nas estrelas 1–3 na seção de avaliações pra minerar mais</i>' : '') +
+      '</div>';
   }
 
   function mediaHTML(it) {
