@@ -704,11 +704,11 @@
     });
   }
 
-  // Raspa preço e vendidos do texto do card — fallback quando o item
-  // não foi capturado via API/SSR
+  // Raspa preço, vendidos e rating do texto do card — fallback quando
+  // o item não foi capturado via API/SSR
   function domStats(card) {
     var t = card.innerText || '';
-    var price = 0, sold = 0;
+    var price = 0, sold = 0, star = 0;
     var pm = t.match(/R\$\s*([\d.]+,\d{2})/);
     if (pm) price = parseFloat(pm[1].replace(/\./g, '').replace(',', '.'));
     var sm = t.match(/(\d+(?:[.,]\d+)?)\s*(mil)?\+?\s*Vendido/i);
@@ -716,7 +716,11 @@
       sold = Math.round(parseFloat(sm[1].replace(',', '.')) *
                         (sm[2] ? 1000 : 1));
     }
-    return { price: price, sold: sold };
+    // rating aparece como decimal 1.0–5.0 solto numa linha própria
+    // (ex.: "4.9" logo acima de "99 Vendido(s)")
+    var rm = t.match(/(?:^|\n|\s)([1-5][.,]\d)\s*(?=\n|$)/);
+    if (rm) star = parseFloat(rm[1].replace(',', '.'));
+    return { price: price, sold: sold, star: star };
   }
 
   function badgeHTML(it, fb) {
@@ -731,7 +735,7 @@
     var gross = grossAfterShopee(price);
     var cmv = cmvTeto(price, 0.20);
     // rating do produto (estrelas + nº de avaliações)
-    var rstar = it.item_rating && it.item_rating.rating_star;
+    var rstar = (it.item_rating && it.item_rating.rating_star) || fb.star;
     var rcount = it.item_rating && it.item_rating.rating_count;
     if (Array.isArray(rcount)) rcount = rcount[0];
     var starTxt = rstar != null ? Number(rstar).toFixed(1) : '—';
