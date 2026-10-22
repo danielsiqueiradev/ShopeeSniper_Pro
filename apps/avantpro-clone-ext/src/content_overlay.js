@@ -17,8 +17,8 @@
 
   // cortes do filtro 💎 — editáveis no painel ⚙️ da top bar,
   // persistidos em localStorage.ssp_opp_cfg
-  var OPP_DEFAULT = { minSold: 30, maxSold: 300,
-                      minPrice: 15, maxPrice: 120, rating: 4.7 };
+  var OPP_DEFAULT = { minSold: 30, maxSold: 999999,
+                      minPrice: 15, maxPrice: 300, rating: 4.7 };
   function loadOpp() {
     var out = {};
     try {
@@ -626,17 +626,38 @@
       ok = ok && (sold > 100 && (rating < 4.7 ||
                   (it.stock != null && it.stock < 10) || isIntl(it)));
     }
-    // 💎 Oportunidade (tese da aula): demanda real mas não saturada +
-    // faixa de preço com margem p/ kit. A "brecha" (rating baixo, seller
-    // intl, estoque <10) NÃO é portão — vira chips no badge, porque com
-    // payloads passivos stock/rating muitas vezes faltam e o AND zerava
+    // 💎 Oportunidade = a tese de entrada: demanda provada + pelo
+    // menos UMA fraqueza explorável do concorrente (mesmos sinais do
+    // ⚔️ Plano de Entrada). Sem fraqueza não é brecha — é espelar.
     if (filters.opp) {
       var s2 = it.sold || 0;
       var pr = it.price || it.price_min || 0;
-      ok = ok && s2 >= OPP.minSold && s2 <= OPP.maxSold &&
-           pr >= OPP.minPrice && pr <= OPP.maxPrice;
+      var demand = s2 >= OPP.minSold && s2 <= OPP.maxSold &&
+                   pr >= OPP.minPrice && pr <= OPP.maxPrice;
+      var wk = entryWeakness(it);
+      ok = ok && demand && (wk.fortes + wk.meds) > 0;
     }
     return ok;
+  }
+
+  // fraquezas exploráveis visíveis no card/listing (shop só quando o
+  // payload capturou — PDP enche, busca raramente)
+  function entryWeakness(it) {
+    var shop = shops.get(String(it.shopid)) || {};
+    var rating = (it.item_rating || {}).rating_star;
+    var w = { fortes: 0, meds: 0 };
+    if (rating != null && rating < 4.4) w.fortes++;
+    else if (rating != null && rating < 4.6) w.meds++;
+    if (shop.response_rate != null && shop.response_rate < 45) w.fortes++;
+    else if (shop.response_rate != null && shop.response_rate < 70) w.meds++;
+    if (shop.rating_star != null && shop.rating_star < 4.7) w.meds++;
+    if (isIntl(it)) w.meds++;
+    if (it.stock != null && it.stock < 10) w.meds++;
+    // anúncio novo vendendo = demanda quente não consolidada (brecha
+    // de timing — o líder ainda não travou o ranking do nicho)
+    var age = it.age_days, sold = it.sold || it.sold_30_days || 0;
+    if (age != null && age <= 60 && sold >= 300) w.fortes++;
+    return w;
   }
 
   // chips de brecha exibidos no badge — onde dá pra ganhar do líder
@@ -646,6 +667,8 @@
     if (rat != null && rat < OPP.rating) chips.push('⭐ ' + rat.toFixed(1));
     if (isIntl(it)) chips.push('🌎 intl');
     if (it.stock != null && it.stock < 10) chips.push('📦 ' + it.stock + ' un.');
+    var sold = it.sold || it.sold_30_days || 0;
+    if (sold >= OPP.minSold && chips.length) chips.unshift('⚔️ entra');
     return chips;
   }
 
@@ -681,6 +704,10 @@
       // grava fallback de volta no map — a top bar agrega daqui
       if (!it.price && !it.price_min) it.price = fb.price;
       if (!it.sold && !it.sold_30_days) it.sold = fb.sold;
+      // estrela do card alimenta o filtro 💎 e o badge nos stubs
+      if (!it.item_rating && fb.star) {
+        it.item_rating = { rating_star: fb.star };
+      }
       queueItem(it);
 
       if (!passesFilters(it)) {
