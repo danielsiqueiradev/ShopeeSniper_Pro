@@ -655,7 +655,8 @@
           .map(function (s) { return s.trim(); })
           .filter(function (s) {
             return s && !/^R\$/.test(s) && !/Vendido/i.test(s) &&
-                   !/un\.$/.test(s) &&
+                   !/un\.$/.test(s) && !/^-?\d+%/.test(s) &&
+                   !/com cupom|Frete|Indicado|OFF$/i.test(s) &&
                    !/^[📅⚡💰📦🧮🎯📈🚩⭐]/.test(s);
           });
         it = { itemid: ids.itemid, shopid: ids.shopid,
