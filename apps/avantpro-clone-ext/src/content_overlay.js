@@ -649,9 +649,15 @@
         // item só existe no DOM (nenhum payload cobriu) — cria stub
         // com o que o card mostra pra badge/topbar/ingest funcionarem
         if (!fb.price && !fb.sold) return;
+        // pula linhas de preço/vendas/badge — o nome é a 1ª linha de
+        // texto "normal" do card (alguns layouts trazem R$ antes)
         var lines = (card.innerText || '').split('\n')
           .map(function (s) { return s.trim(); })
-          .filter(Boolean);
+          .filter(function (s) {
+            return s && !/^R\$/.test(s) && !/Vendido/i.test(s) &&
+                   !/un\.$/.test(s) &&
+                   !/^[📅⚡💰📦🧮🎯📈🚩⭐]/.test(s);
+          });
         it = { itemid: ids.itemid, shopid: ids.shopid,
                name: (lines[0] || '').slice(0, 200) || null };
         items.set(ids.itemid, it);
