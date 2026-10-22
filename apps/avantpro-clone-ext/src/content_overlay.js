@@ -83,21 +83,37 @@
   }
 
   // ======================================================================
-  // Unit economics (espelha backend unit_economics.py)
+  // Unit economics — configurável no ⚙️ (localStorage.ssp_fees_cfg).
+  // Defaults são estimativas genéricas; o usuário calibra com as taxas
+  // reais da própria conta de vendedor.
   // ======================================================================
-  var FEES = { comm: 0.14, fs: 0.06, cap: 100, fixed: 4.0, fixedThr: 8.0,
-               tax: 0.06, ads: 0.08 };
+  var FEE_DEFAULT = { comm: 14, fs: 6, cap: 100, fixed: 4.0,
+                      fixedThr: 8.0, tax: 6, ads: 8, margin: 20 };
+  function loadFees() {
+    var out = {};
+    try {
+      var c = JSON.parse(localStorage.getItem('ssp_fees_cfg') || '{}');
+      for (var k in FEE_DEFAULT) {
+        out[k] = (typeof c[k] === 'number') ? c[k] : FEE_DEFAULT[k];
+      }
+    } catch (e) {
+      for (var k2 in FEE_DEFAULT) out[k2] = FEE_DEFAULT[k2];
+    }
+    return out;
+  }
+  var FEES = loadFees();
 
   function feeTotal(price) {
-    var comm = Math.min(price * FEES.comm, FEES.cap);
+    var comm = Math.min(price * FEES.comm / 100, FEES.cap);
     var fixed = price < FEES.fixedThr ? price / 2 : FEES.fixed;
-    return comm + price * FEES.fs + fixed + price * FEES.tax + price * FEES.ads;
+    return comm + price * (FEES.fs + FEES.tax + FEES.ads) / 100 + fixed;
   }
 
   function grossAfterShopee(price) { return price - feeTotal(price); }
 
   function cmvTeto(price, targetMargin) {
-    return price - feeTotal(price) - targetMargin * price;
+    var m = (targetMargin != null ? targetMargin : FEES.margin) / 100;
+    return price - feeTotal(price) - m * price;
   }
 
   // normaliza campos ×100000 vindos de payload não-interceptado (SSR/JSON)
@@ -503,12 +519,16 @@
       p.querySelector('#ssp-cfg-save').onclick = function () {
         p.querySelectorAll('input[type="number"]').forEach(function (inp) {
           var v = parseFloat(inp.value);
-          if (!isNaN(v)) OPP[inp.dataset.k] = v;
+          if (isNaN(v)) return;
+          if (inp.dataset.k) OPP[inp.dataset.k] = v;
+          else if (inp.dataset.f) FEES[inp.dataset.f] = v;
         });
         try {
           localStorage.setItem('ssp_opp_cfg', JSON.stringify(OPP));
+          localStorage.setItem('ssp_fees_cfg', JSON.stringify(FEES));
         } catch (e) {}
         decorateVisibleCards();
+        maybeRenderDrawer();
       };
     };
     bar.querySelector('#ssp-csv').onclick = exportCSV;
@@ -548,10 +568,21 @@
       return '<input type="number" data-k="' + k + '" value="' + OPP[k] +
              '"' + (step ? ' step="' + step + '"' : '') + '>';
     }
+    function fee(k, step) {
+      return '<input type="number" data-f="' + k + '" value="' + FEES[k] +
+             '"' + (step ? ' step="' + step + '"' : '') + '>';
+    }
     return '<b>💎 Cortes:</b>' +
       'Vendas/mês ' + inp('minSold') + '–' + inp('maxSold') +
       'Preço R$ ' + inp('minPrice') + '–' + inp('maxPrice') +
       'Rating &lt; ' + inp('rating', '0.1') +
+      ' <b>🧮 Taxas:</b>' +
+      'Comissão ' + fee('comm') + '%' +
+      'Frete grátis ' + fee('fs') + '%' +
+      'Fixa R$' + fee('fixed', '0.5') +
+      'Imposto ' + fee('tax') + '%' +
+      'Ads ' + fee('ads') + '%' +
+      'Margem ' + fee('margin') + '%' +
       '<button id="ssp-cfg-save" class="ssp-btn on">Salvar</button>';
   }
 
@@ -783,7 +814,7 @@
     var velLife = age ? (hist / Math.max(age, 1)).toFixed(1) : '—';
     var rev30 = s30 * price;
     var gross = grossAfterShopee(price);
-    var cmv = cmvTeto(price, 0.20);
+    var cmv = cmvTeto(price);
     // rating do produto (estrelas + nº de avaliações)
     var rstar = (it.item_rating && it.item_rating.rating_star) || fb.star;
     var rcount = it.item_rating && it.item_rating.rating_count;
@@ -1057,7 +1088,7 @@
     }
     // 💸 economia — a conta tem que fechar antes de brigar
     var liq = price ? grossAfterShopee(price) : 0;
-    var cmv = price ? cmvTeto(price, 0.20) : 0;
+    var cmv = price ? cmvTeto(price) : 0;
     var econ = price
       ? '<div class="ssp-grid">' +
         '<span>Sobras/un: <b class="ssp-profit">' + brl(liq) + '</b></span>' +
