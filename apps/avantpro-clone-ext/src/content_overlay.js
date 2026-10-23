@@ -568,10 +568,11 @@
              '/' + id;
     });
     p.innerHTML = ids.length
-      ? '<div class="ssp-trk-row"><button id="ssp-open-all" class="ssp-btn"' +
+      ? '<div class="ssp-trk-head"><button id="ssp-open-all" class="ssp-btn"' +
         ' title="abre cada PDP em aba de fundo (1,2s entre cada) — grava ' +
         'o snapshot diário de todos">🔁 Abrir todos (' + ids.length +
         ')</button></div>' +
+        '<div class="ssp-trk-list">' +
         ids.map(function (id, i) {
           var t = tracked[id];
           return '<div class="ssp-trk-row">' +
@@ -579,7 +580,7 @@
               (t.name || 'item ' + id) + '</a>' +
             '<button class="ssp-trk-x" data-id="' + id +
               '" title="parar de acompanhar">✕</button></div>';
-        }).join('')
+        }).join('') + '</div>'
       : '<i>Nenhum item trackado — abra uma PDP e clique 📌 Track no drawer</i>';
     var openAll = p.querySelector('#ssp-open-all');
     if (openAll) {

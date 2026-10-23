@@ -77,7 +77,16 @@
   border-radius: 4px; padding: 1px 7px; cursor: pointer; font-size: 11px;
 }
 .ssp-drawer-head #ssp-track:hover { border-color: #ee4d2d; }
-.ssp-trkpanel { flex-direction: column; align-items: stretch; gap: 3px; }
+.ssp-trkpanel {
+  flex-direction: column; align-items: stretch; gap: 3px;
+  max-height: 55vh;
+}
+.ssp-trk-head {
+  position: sticky; top: 0; z-index: 2;
+  background: #1b1b1f; padding: 2px 0 6px;
+  border-bottom: 1px solid #333; flex-shrink: 0;
+}
+.ssp-trk-list { overflow-y: auto; min-height: 0; }
 .ssp-trk-row { display: flex; justify-content: space-between; gap: 8px; }
 .ssp-trk-row a {
   color: #6cb5ff; text-decoration: none;
