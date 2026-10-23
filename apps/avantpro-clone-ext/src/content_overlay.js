@@ -848,10 +848,30 @@
                name: (lines[0] || '').slice(0, 200) ||
                      nameFromUrl(cardLink && cardLink.href) || null };
         items.set(ids.itemid, it);
+        // stub resolveu o nome e o item tá 📌 → propaga pro painel/Supabase
+        if (it.name && tracked[ids.itemid] &&
+            tracked[ids.itemid].name !== it.name) {
+          tracked[ids.itemid].name = it.name;
+          saveTracked();
+          pushTrack(ids.itemid, true, it);
+        }
       }
       // faixa "VENDEDOR INTERNACIONAL" do próprio card — sinal de brecha
       // mesmo quando o payload não traz shop_location
       if (/internacional/i.test(card.innerText || '')) it.intl_dom = true;
+      // item conhecido mas sem nome → o slug do card resolve
+      if (!it.name) {
+        var a2 = findLinkInCard(card);
+        var nm = nameFromUrl(a2 && a2.href);
+        if (nm) {
+          it.name = nm;
+          if (tracked[ids.itemid] && tracked[ids.itemid].name !== nm) {
+            tracked[ids.itemid].name = nm;
+            saveTracked();
+            pushTrack(ids.itemid, true, it);
+          }
+        }
+      }
       // grava fallback de volta no map — a top bar agrega daqui
       if (!it.price && !it.price_min) it.price = fb.price;
       if (!it.sold && !it.sold_30_days) it.sold = fb.sold;
