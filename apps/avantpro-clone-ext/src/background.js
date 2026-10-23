@@ -278,7 +278,7 @@ async function fetchTrackedStats(ids) {
   const inList = ids.map(encodeURIComponent).join(',');
   const url = `${c.supabaseUrl}/rest/v1/product_daily_snapshots` +
     `?item_id=in.(${inList})` +
-    `&select=item_id,price,sold_30_days,rating_star,stock,snapshot_date` +
+    `&select=item_id,price,sold_30_days,historical_sold,rating_star,stock,snapshot_date` +
     `&order=item_id,snapshot_date.desc&limit=2000`;
   const r = await fetch(url, {
     headers: { 'apikey': c.supabaseKey, 'Authorization': `Bearer ${c.supabaseKey}` }

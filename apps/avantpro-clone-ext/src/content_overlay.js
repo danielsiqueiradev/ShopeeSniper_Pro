@@ -573,8 +573,10 @@
     var ids = Object.keys(tracked);
     // mais vendidos no topo; sem stats vai pro fim
     var order = ids.slice().sort(function (a, b) {
-      var sa = trkStats[a] && trkStats[a].sold_30_days;
-      var sb = trkStats[b] && trkStats[b].sold_30_days;
+      var sa = trkStats[a] &&
+               (trkStats[a].sold_30_days || trkStats[a].historical_sold);
+      var sb = trkStats[b] &&
+               (trkStats[b].sold_30_days || trkStats[b].historical_sold);
       return (sb || -1) - (sa || -1);
     });
     var urls = order.map(function (id) {
@@ -594,8 +596,9 @@
           var t = tracked[id];
           var st = trkStats[id];
           var meta = st
-            ? '<span class="ssp-trk-meta">' + (st.sold_30_days || 0) +
-              '/30d · ' + brl(st.price) +
+            ? '<span class="ssp-trk-meta">' +
+              (st.sold_30_days || st.historical_sold || 0) +
+              (st.sold_30_days ? '/30d' : ' total') + ' · ' + brl(st.price) +
               (st.rating_star ? ' · ' + Number(st.rating_star).toFixed(1) + '★' : '') +
               '</span>'
             : '';
