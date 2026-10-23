@@ -73,6 +73,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.type === 'SSP_TRACK_STATS') {
+    fetchTrackedStats(msg.itemids || [])
+      .then((stats) => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_STATS_RESULT', stats
+      }))
+      .catch(() => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_STATS_RESULT', stats: {}
+      }));
+    return;
+  }
+
   if (msg.type === 'SSP_OPEN_TABS') {
     // ritual diário do 📌: abre cada PDP em aba de fundo com delay —
     // chrome.tabs.create ignora popup blocker, e o espaçamento deixa a
@@ -257,6 +268,27 @@ async function fetchTracked() {
   );
   if (!r.ok) return [];
   return r.json();
+}
+
+// stats do último snapshot de cada item trackado — alimenta o
+// ranking do painel 📌 (ordena por sold_30_days)
+async function fetchTrackedStats(ids) {
+  const c = await cfg();
+  if (!c.supabaseUrl || !c.supabaseKey || !ids.length) return {};
+  const inList = ids.map(encodeURIComponent).join(',');
+  const url = `${c.supabaseUrl}/rest/v1/product_daily_snapshots` +
+    `?item_id=in.(${inList})` +
+    `&select=item_id,price,sold_30_days,rating_star,stock,snapshot_date` +
+    `&order=item_id,snapshot_date.desc&limit=2000`;
+  const r = await fetch(url, {
+    headers: { 'apikey': c.supabaseKey, 'Authorization': `Bearer ${c.supabaseKey}` }
+  });
+  if (!r.ok) return {};
+  const out = {};
+  (await r.json()).forEach((row) => {
+    if (!out[row.item_id]) out[row.item_id] = row; // 1º = mais recente
+  });
+  return out;
 }
 
 async function fetchDelta(itemid) {

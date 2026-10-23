@@ -90,11 +90,13 @@
 }
 .ssp-trk-head {
   position: sticky; top: 0; z-index: 2;
+  display: flex; gap: 6px;
   background: #1b1b1f; padding: 2px 0 6px;
   border-bottom: 1px solid #333; flex-shrink: 0;
 }
 .ssp-trk-list { overflow-y: auto; min-height: 0; }
-.ssp-trk-row { display: flex; justify-content: space-between; gap: 8px; }
+.ssp-trk-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ssp-trk-meta { color: #888; font-size: 10px; flex-shrink: 0; white-space: nowrap; }
 .ssp-trk-row a {
   color: #6cb5ff; text-decoration: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

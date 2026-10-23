@@ -530,6 +530,10 @@
       renderTrackedPanel(p);
       var anchor = document.getElementById('ssp-cfgpanel') || bar;
       anchor.insertAdjacentElement('afterend', p);
+      // puxa stats do Supabase pra ordenar por volume — chega via
+      // SSP_TRACK_STATS_RESULT e re-renderiza a lista
+      safeSend({ type: 'SSP_TRACK_STATS',
+                 itemids: Object.keys(tracked) });
     };
     bar.querySelector('#ssp-cfg').onclick = function () {
       var p = document.getElementById('ssp-cfgpanel');
@@ -561,32 +565,59 @@
     return '<span class="ssp-stat"><b>' + value + '</b><i>' + label + '</i></span>';
   }
 
+  // stats do último snapshot por item (via Supabase, quando o painel
+  // 📌 abre) — ordena a lista por volume pra ritual diário ser viável
+  var trkStats = {};
+
   function renderTrackedPanel(p) {
     var ids = Object.keys(tracked);
-    var urls = ids.map(function (id) {
+    // mais vendidos no topo; sem stats vai pro fim
+    var order = ids.slice().sort(function (a, b) {
+      var sa = trkStats[a] && trkStats[a].sold_30_days;
+      var sb = trkStats[b] && trkStats[b].sold_30_days;
+      return (sb || -1) - (sa || -1);
+    });
+    var urls = order.map(function (id) {
       return 'https://shopee.com.br/product/' + (tracked[id].shopid || '0') +
              '/' + id;
     });
     p.innerHTML = ids.length
-      ? '<div class="ssp-trk-head"><button id="ssp-open-all" class="ssp-btn"' +
-        ' title="abre cada PDP em aba de fundo (1,2s entre cada) — grava ' +
-        'o snapshot diário de todos">🔁 Abrir todos (' + ids.length +
-        ')</button></div>' +
+      ? '<div class="ssp-trk-head">' +
+        '<button id="ssp-open-top" class="ssp-btn"' +
+        ' title="abre as PDPs dos 10 mais vendidos em abas de fundo">' +
+        '🔁 Top 10</button>' +
+        '<button id="ssp-open-all" class="ssp-btn"' +
+        ' title="abre todas em abas de fundo (máx 20)">Todos (' +
+          order.length + ')</button></div>' +
         '<div class="ssp-trk-list">' +
-        ids.map(function (id, i) {
+        order.map(function (id, i) {
           var t = tracked[id];
+          var st = trkStats[id];
+          var meta = st
+            ? '<span class="ssp-trk-meta">' + (st.sold_30_days || 0) +
+              '/30d · ' + brl(st.price) +
+              (st.rating_star ? ' · ' + Number(st.rating_star).toFixed(1) + '★' : '') +
+              '</span>'
+            : '';
           return '<div class="ssp-trk-row">' +
             '<a href="' + urls[i] + '" target="_blank" rel="noopener">' +
-              (t.name || 'item ' + id) + '</a>' +
+              (t.name || 'item ' + id) + '</a>' + meta +
             '<button class="ssp-trk-x" data-id="' + id +
               '" title="parar de acompanhar">✕</button></div>';
         }).join('') + '</div>'
       : '<i>Nenhum item trackado — abra uma PDP e clique 📌 Track no drawer</i>';
+    var openTop = p.querySelector('#ssp-open-top');
+    if (openTop) {
+      openTop.onclick = function () {
+        safeSend({ type: 'SSP_OPEN_TABS', urls: urls.slice(0, 10) });
+        openTop.textContent = '🔁 abrindo 10…';
+      };
+    }
     var openAll = p.querySelector('#ssp-open-all');
     if (openAll) {
       openAll.onclick = function () {
         safeSend({ type: 'SSP_OPEN_TABS', urls: urls });
-        openAll.textContent = '🔁 abrindo ' + urls.length + ' abas…';
+        openAll.textContent = '🔁 abrindo ' + urls.length + '…';
       };
     }
     p.querySelectorAll('.ssp-trk-x').forEach(function (x) {
@@ -947,6 +978,12 @@
         if (!remoteIds[id]) pushTrack(id, true, tracked[id]);
       });
       saveTracked(); updatePins(); refreshTopBar();
+      return;
+    }
+    if (msg && msg.type === 'SSP_TRACK_STATS_RESULT') {
+      trkStats = msg.stats || {};
+      var panel = document.getElementById('ssp-trkpanel');
+      if (panel) renderTrackedPanel(panel);
       return;
     }
     if (msg && msg.type === 'SSP_DELTA_RESULT') {
