@@ -79,6 +79,13 @@
 .ssp-drawer-head #ssp-track:hover { border-color: #ee4d2d; }
 .ssp-trkpanel {
   flex-direction: column; align-items: stretch; gap: 3px;
+  /* fixed: o painel rolava junto com a página e o topo (botão
+     🔁 Abrir todos) sumia atrás do header da Shopee */
+  position: fixed;
+  top: 42px;
+  left: 0;
+  right: 0;
+  z-index: 99998;
   max-height: 55vh;
 }
 .ssp-trk-head {
