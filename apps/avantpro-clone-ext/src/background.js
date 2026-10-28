@@ -84,6 +84,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.type === 'SSP_TRACK_SCORES') {
+    // scores de oportunidade dos trackados — alimenta o "🧹 Limpar fracos"
+    fetchBreachScores(msg.itemids || [])
+      .then((scores) => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_SCORES_RESULT', scores
+      }))
+      .catch(() => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_TRACK_SCORES_RESULT', scores: {}
+      }));
+    return;
+  }
+
   if (msg.type === 'SSP_OPEN_TABS') {
     // ritual diário do 📌: abre cada PDP em aba de fundo com delay —
     // chrome.tabs.create ignora popup blocker, e o espaçamento deixa a
@@ -270,25 +282,51 @@ async function fetchTracked() {
   return r.json();
 }
 
+// GET com in.(...) estoura o limite de URL do PostgREST com ~300 ids —
+// divide em lotes de 100 e junta os resultados
+async function fetchInBatches(table, tail, ids, mapRow) {
+  const c = await cfg();
+  if (!c.supabaseUrl || !c.supabaseKey || !ids.length) return {};
+  const out = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const inList = ids.slice(i, i + 100).map(encodeURIComponent).join(',');
+    const url = `${c.supabaseUrl}/rest/v1/${table}` +
+                `?item_id=in.(${inList})&${tail}`;
+    try {
+      const r = await fetch(url, {
+        headers: { 'apikey': c.supabaseKey,
+                   'Authorization': `Bearer ${c.supabaseKey}` }
+      });
+      if (!r.ok) {
+        console.log(`[ShopeeSniper BG] ${table} → ${r.status}`);
+        continue;
+      }
+      (await r.json()).forEach((row) => mapRow(row, out));
+    } catch (e) { /* lote falhou — os outros seguem */ }
+  }
+  return out;
+}
+
 // stats do último snapshot de cada item trackado — alimenta o
 // ranking do painel 📌 (ordena por sold_30_days)
 async function fetchTrackedStats(ids) {
-  const c = await cfg();
-  if (!c.supabaseUrl || !c.supabaseKey || !ids.length) return {};
-  const inList = ids.map(encodeURIComponent).join(',');
-  const url = `${c.supabaseUrl}/rest/v1/product_daily_snapshots` +
-    `?item_id=in.(${inList})` +
-    `&select=item_id,price,sold_30_days,historical_sold,rating_star,stock,snapshot_date` +
-    `&order=item_id,snapshot_date.desc&limit=2000`;
-  const r = await fetch(url, {
-    headers: { 'apikey': c.supabaseKey, 'Authorization': `Bearer ${c.supabaseKey}` }
-  });
-  if (!r.ok) return {};
-  const out = {};
-  (await r.json()).forEach((row) => {
-    if (!out[row.item_id]) out[row.item_id] = row; // 1º = mais recente
-  });
-  return out;
+  return fetchInBatches(
+    'product_daily_snapshots',
+    'select=item_id,price,sold_30_days,historical_sold,rating_star,stock,snapshot_date' +
+      '&order=item_id,snapshot_date.desc&limit=2000',
+    ids,
+    (row, out) => { if (!out[row.item_id]) out[row.item_id] = row; }
+  );
+}
+
+// opportunity_score + sinal de cada item trackado (vw_breach_opportunities)
+async function fetchBreachScores(ids) {
+  return fetchInBatches(
+    'vw_breach_opportunities',
+    'select=item_id,opportunity_score,sinal',
+    ids,
+    (row, out) => { out[row.item_id] = row; }
+  );
 }
 
 async function fetchDelta(itemid) {

@@ -45,8 +45,23 @@
     catch (e) {}
   }
   function isTracked(id) { return !!tracked[String(id)]; }
+
+  // liga/desliga global do tracker — pausa a criação de novos 📌 sem
+  // perder a lista existente. Persiste em localStorage.
+  var trackerOn = (function () {
+    try { return localStorage.getItem('ssp_tracker_on') !== '0'; }
+    catch (e) { return true; }
+  })();
+  function setTrackerOn(v) {
+    trackerOn = v;
+    try {
+      if (v) localStorage.removeItem('ssp_tracker_on');
+      else localStorage.setItem('ssp_tracker_on', '0');
+    } catch (e) {}
+  }
   function toggleTrack(it) {
     var id = String(it.itemid || it.item_id);
+    if (!trackerOn && !tracked[id]) return; // tracker pausado: só permite remover
     if (tracked[id]) delete tracked[id];
     else tracked[id] = { name: it.name || '', shopid: it.shopid,
                          at: Date.now() };
@@ -479,7 +494,7 @@
         '">💎 Oportunidade</button>' +
       '<button id="ssp-enrich" class="ssp-btn" title="Rola a página pra forçar o carregamento lazy (reviews, mais itens) — 100% passivo">🔎 Varrer</button>' +
       '<button id="ssp-tracked" class="ssp-btn" title="Itens marcados pra acompanhamento diário">📌 ' +
-        Object.keys(tracked).length + '</button>' +
+        Object.keys(tracked).length + (trackerOn ? '' : ' ⏸') + '</button>' +
       '<button id="ssp-cfg" class="ssp-btn">⚙️</button>' +
       '<button id="ssp-csv" class="ssp-btn">📥 Export CSV</button>';
 
@@ -585,6 +600,12 @@
     });
     p.innerHTML = ids.length
       ? '<div class="ssp-trk-head">' +
+        '<button id="ssp-trk-toggle" class="ssp-btn"' +
+        ' title="liga/desliga a criação de novos 📌 (a lista continua)">' +
+          (trackerOn ? '⏸ Tracker' : '▶ Tracker') + '</button>' +
+        '<button id="ssp-trk-prune" class="ssp-btn"' +
+        ' title="remove itens sem dados no banco ou com sinal MONITOR">' +
+          '🧹 Limpar fracos</button>' +
         '<button id="ssp-open-top" class="ssp-btn"' +
         ' title="abre as PDPs dos 10 mais vendidos em abas de fundo">' +
         '🔁 Top 10</button>' +
@@ -609,6 +630,24 @@
               '" title="parar de acompanhar">✕</button></div>';
         }).join('') + '</div>'
       : '<i>Nenhum item trackado — abra uma PDP e clique 📌 Track no drawer</i>';
+    var tog = p.querySelector('#ssp-trk-toggle');
+    if (tog) {
+      tog.onclick = function () {
+        setTrackerOn(!trackerOn);
+        refreshTopBar();
+        renderTrackedPanel(p);
+      };
+    }
+    var prune = p.querySelector('#ssp-trk-prune');
+    if (prune) {
+      prune.onclick = function () {
+        prune.textContent = '🧹 analisando…';
+        // background consulta vw_breach_opportunities pros ids trackados
+        // → SSP_TRACK_SCORES_RESULT dispara a limpeza em si
+        safeSend({ type: 'SSP_TRACK_SCORES',
+                   itemids: Object.keys(tracked) });
+      };
+    }
     var openTop = p.querySelector('#ssp-open-top');
     if (openTop) {
       openTop.onclick = function () {
@@ -1009,6 +1048,47 @@
       if (panel) renderTrackedPanel(panel);
       return;
     }
+    if (msg && msg.type === 'SSP_TRACK_SCORES_RESULT') {
+      // limpeza: sinal MONITOR, ou sem dados — mas item trackado há
+      // menos de 48h ganha carência (ainda não teve revisita p/ gerar
+      // snapshot)
+      var scores = msg.scores || {};
+      var pn = document.getElementById('ssp-trkpanel');
+      // se a consulta veio vazia (rede/supabase falhou), não apaga nada —
+      // "nenhuma linha" é diferente de "consulta quebrou"
+      if (Object.keys(tracked).length && !Object.keys(scores).length) {
+        window.alert('Não consegui consultar os scores no Supabase — ' +
+          'nada foi removido. Tenta de novo em instantes.');
+        if (pn) renderTrackedPanel(pn);
+        return;
+      }
+      var graceMs = 48 * 3600 * 1000;
+      var noData = 0, monitor = 0;
+      var weak = Object.keys(tracked).filter(function (id) {
+        var s = scores[id];
+        var t = tracked[id];
+        var age = t && t.at ? Date.now() - t.at : Infinity;
+        if (!s) {
+          if (age > graceMs) { noData++; return true; }
+          return false;
+        }
+        if (s.sinal === 'MONITOR') { monitor++; return true; }
+        return false;
+      });
+      var total = Object.keys(tracked).length;
+      if (!weak.length ||
+          window.confirm('De ' + total + ' trackados: ' + monitor +
+            ' sinal MONITOR + ' + noData + ' sem dados (48h+) = ' +
+            weak.length + ' removidos. Confirma?')) {
+        weak.forEach(function (id) {
+          delete tracked[id];
+          pushTrack(id, false, {});
+        });
+        saveTracked(); updatePins(); refreshTopBar();
+      }
+      if (pn) renderTrackedPanel(pn);
+      return;
+    }
     if (msg && msg.type === 'SSP_DELTA_RESULT') {
       var el = document.querySelector('.ssp-delta[data-itemid="' + msg.itemid + '"]');
       if (el) {
@@ -1026,6 +1106,22 @@
     return ids ? ids.itemid : null;
   }
 
+  // a PDP exibe "X Vendidos" no topo = acumulado total = historical_sold.
+  // Como o item/get morreu (anti-bot), o DOM é a única fonte passiva
+  // desse campo — raspa e grava no item pra ir no próximo flush de ingest
+  function pdpSoldFromDom() {
+    var els = document.querySelectorAll('div, span, button, section');
+    for (var i = 0; i < els.length; i++) {
+      var t = (els[i].innerText || '').trim();
+      var m = t.match(/^([\d.,]+)\s*(mil)?\s*[Vv]endidos?/);
+      if (m) {
+        var v = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+        return Math.round(v * (m[2] ? 1000 : 1));
+      }
+    }
+    return null;
+  }
+
   function maybeRenderDrawer() {
     var itemid = currentPdpItemId();
     if (!itemid) {
@@ -1036,9 +1132,18 @@
     var it = items.get(itemid);
     if (!it) return; // espera o payload detalhado (item/get ou pdp/get_pc)
 
+    if (it.historical_sold == null) {
+      var hs = pdpSoldFromDom();
+      if (hs != null) {
+        it.historical_sold = hs;
+        queueItem(it);
+      }
+    }
+
     // só reconstrói se mudou (evita flicker/jank a cada repaint)
     var key = itemid + ':' + ((it.models || []).length) + ':' +
-              ((ratings.get(itemid) || []).length);
+              ((ratings.get(itemid) || []).length) + ':' +
+              (trackerOn ? '1' : '0') + ':' + (isTracked(itemid) ? 't' : '');
     var drawer = document.getElementById('ssp-drawer');
     if (drawer && drawer.dataset.key === key) return;
 
@@ -1051,8 +1156,12 @@
     drawer.dataset.key = key;
     drawer.innerHTML =
       '<div class="ssp-drawer-head">🎯 ShopeeSniper <span>' +
-        '<button id="ssp-track">' +
-          (isTracked(itemid) ? '📌 Trackado' : '📌 Track') + '</button>' +
+        // tracker pausado: esconde o botão, exceto se já trackado
+        // (permite desmarcar)
+        ((trackerOn || isTracked(itemid))
+          ? '<button id="ssp-track">' +
+            (isTracked(itemid) ? '📌 Trackado' : '📌 Track') + '</button>'
+          : '') +
         '<button id="ssp-toggle">▾</button></span></div>' +
       '<div class="ssp-drawer-body">' +
         entryPlanHTML(it, itemid) +
@@ -1064,11 +1173,14 @@
     drawer.querySelector('#ssp-toggle').onclick = function () {
       drawer.classList.toggle('collapsed');
     };
-    drawer.querySelector('#ssp-track').onclick = function (ev) {
-      toggleTrack(it);
-      ev.target.textContent =
-        isTracked(itemid) ? '📌 Trackado' : '📌 Track';
-    };
+    var trkBtn = drawer.querySelector('#ssp-track');
+    if (trkBtn) {
+      trkBtn.onclick = function (ev) {
+        toggleTrack(it);
+        ev.target.textContent =
+          isTracked(itemid) ? '📌 Trackado' : '📌 Track';
+      };
+    }
     drawer.querySelectorAll('.ssp-media-dl').forEach(function (b) {
       b.onclick = function () {
         safeSend({ type: 'SSP_DOWNLOAD', url: b.dataset.url,
