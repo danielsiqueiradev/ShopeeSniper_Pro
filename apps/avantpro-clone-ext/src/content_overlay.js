@@ -1036,8 +1036,16 @@
                            at: new Date(r.created_at).getTime() };
         }
       });
+      // remoto é autoridade: item local que sumiu do server e já passou
+      // da carência foi desmarcado em outro PC/dashboard → some daqui.
+      // item muito novo sem confirmação remota sobe (push pode ter falhado)
+      var syncGraceMs = 10 * 60 * 1000;
       Object.keys(tracked).forEach(function (id) {
-        if (!remoteIds[id]) pushTrack(id, true, tracked[id]);
+        if (remoteIds[id]) return;
+        var age = tracked[id] && tracked[id].at
+          ? Date.now() - tracked[id].at : Infinity;
+        if (age > syncGraceMs) delete tracked[id];
+        else pushTrack(id, true, tracked[id]);
       });
       saveTracked(); updatePins(); refreshTopBar();
       return;

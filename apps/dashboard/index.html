@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShopeeSniper — Dashboard</title>
+<style>
+  :root { --bg:#141417; --panel:#1b1b1f; --panel2:#22222a; --line:#333;
+          --txt:#eee; --dim:#999; --acc:#ee4d2d; --ok:#7fd87f; --warn:#ffb84d;
+          --bad:#ff7a7a; --info:#6cb5ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:13px 'Segoe UI', Arial, sans-serif; }
+  header { background:var(--panel); border-bottom:2px solid var(--acc);
+           padding:10px 18px; display:flex; align-items:center; gap:18px;
+           flex-wrap:wrap; position:sticky; top:0; z-index:10; }
+  .brand { font-weight:700; color:var(--acc); font-size:16px; }
+  .kpi { display:flex; flex-direction:column; line-height:1.15; }
+  .kpi b { font-size:15px; }
+  .kpi i { font-style:normal; font-size:10px; color:var(--dim); }
+  nav { display:flex; gap:8px; padding:10px 18px; background:var(--panel);
+        border-bottom:1px solid var(--line); }
+  .tab { background:var(--panel2); border:1px solid #444; border-radius:6px;
+         color:var(--txt); padding:6px 14px; cursor:pointer; font-size:12px; }
+  .tab.on { background:var(--acc); border-color:var(--acc); }
+  main { padding:14px 18px; max-width:1400px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+              margin-bottom:12px; }
+  .controls input, .controls select {
+    background:var(--panel2); border:1px solid #444; border-radius:6px;
+    color:var(--txt); padding:6px 10px; font-size:12px; }
+  .controls input { width:260px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:7px 8px; border-bottom:1px solid var(--line);
+           text-align:left; vertical-align:top; }
+  th { color:var(--dim); font-weight:600; position:sticky; top:0;
+       background:var(--bg); cursor:pointer; user-select:none; }
+  tr:hover td { background:#1e1e24; }
+  a { color:var(--info); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:4px;
+         font-size:10px; font-weight:700; }
+  .tag.brecha { background:#3d1f14; color:#ff9d5c; }
+  .tag.bom { background:#332a10; color:var(--warn); }
+  .tag.monitor { background:#26262e; color:var(--dim); }
+  .tag.quente { background:#33110a; color:#ff6b4a; }
+  .tag.intl { background:#12233a; color:var(--info); }
+  .grouphead td { background:var(--panel); color:var(--warn);
+                  font-weight:700; padding:8px; }
+  .untrk { background:none; border:none; color:#888; cursor:pointer;
+           font-size:12px; }
+  .untrk:hover { color:var(--acc); }
+  .muted { color:var(--dim); }
+  .err { background:#3a1414; border:1px solid var(--bad); color:var(--bad);
+         padding:10px 14px; border-radius:6px; margin:10px 0; }
+  .cfg-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+             margin:8px 0; }
+  .cfg-row input { width:90px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">🎯 ShopeeSniper</span>
+  <span class="kpi"><b id="k-items">—</b><i>trackados</i></span>
+  <span class="kpi"><b id="k-vol">—</b><i>vendas 30d</i></span>
+  <span class="kpi"><b id="k-rev">—</b><i>receita 30d</i></span>
+  <span class="kpi"><b id="k-brecha">—</b><i>com brecha</i></span>
+  <span class="kpi"><b id="k-quente">—</b><i>quentes 7d</i></span>
+  <span class="kpi"><b id="k-snap">—</b><i>último snapshot</i></span>
+</header>
+
+<nav>
+  <button class="tab on" data-t="tracked">📌 Trackados</button>
+  <button class="tab" data-t="opps">💎 Oportunidades</button>
+  <button class="tab" data-t="cfg">⚙️ Conexão</button>
+  <button class="tab" id="btn-refresh" style="margin-left:auto">↻ Atualizar</button>
+</nav>
+
+<main>
+  <div id="err"></div>
+
+  <section id="sec-tracked">
+    <div class="controls">
+      <input id="f-search" placeholder="🔍 buscar por nome ou item_id…">
+      <select id="f-sort">
+        <option value="vendidos">Ordenar: vendas</option>
+        <option value="receita">Ordenar: receita 30d</option>
+        <option value="rating">Ordenar: rating ↑</option>
+        <option value="delta7">Ordenar: vendas 7d</option>
+        <option value="recente">Ordenar: track recente</option>
+      </select>
+      <select id="f-group">
+        <option value="sinal">Agrupar: sinal</option>
+        <option value="catid">Agrupar: categoria</option>
+        <option value="none">Sem grupo</option>
+      </select>
+      <label class="muted"><input type="checkbox" id="f-onlybrecha"> só com brecha</label>
+    </div>
+    <table id="tbl-tracked"><thead></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-opps" hidden>
+    <p class="muted">vw_breach_opportunities — demanda 30–300/mês, R$15–120,
+      com brecha explorável = OPORTUNIDADE.</p>
+    <table id="tbl-opps"><thead></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-cfg" hidden>
+    <div class="cfg-row">
+      <b>Supabase URL</b>
+      <input id="cfg-url" style="width:340px">
+    </div>
+    <div class="cfg-row">
+      <b>Anon key</b>
+      <input id="cfg-key" style="width:480px">
+      <button class="tab" id="cfg-save">Salvar</button>
+    </div>
+    <p class="muted">A anon key é pública por design — a proteção real é o RLS.
+      Mesmos valores do background.js da extensão.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var DEFAULT_URL = 'https://uiaryvsqcaevatfkxuop.supabase.co';
+  var DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpYXJ5dnNxY2FldmF0Zmt4dW9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5MzAwMDMsImV4cCI6MjEwNzUwNjAwM30.FmfaMw2e0UgViAhzIPapCxlnNDizq_ajx6tdXjccElY';
+
+  var S = { url: DEFAULT_URL, key: DEFAULT_KEY };
+  try { Object.assign(S, JSON.parse(localStorage.getItem('ssp_dash_cfg') || '{}')); } catch (e) {}
+
+  var state = { trk: [], snaps: {}, prods: {}, view: 'tracked' };
+
+  function $(s) { return document.querySelector(s); }
+  function brl(v) { return (v == null || isNaN(v)) ? '—' :
+    'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function nn(v) { return (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR'); }
+  function link(it) { return 'https://shopee.com.br/product/' + it.shop_id + '/' + it.item_id; }
+
+  async function sb(path, opts) {
+    var r = await fetch(S.url + '/rest/v1' + path, Object.assign({
+      headers: { apikey: S.key, Authorization: 'Bearer ' + S.key }
+    }, opts || {}));
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' em ' + path.split('?')[0]);
+    return r.status === 204 ? null : r.json();
+  }
+  // PostgREST in.() tem limite de URL — divide em blocos
+  async function sbIn(path, ids, chunk) {
+    var out = [];
+    for (var i = 0; i < ids.length; i += (chunk || 60)) {
+      var part = ids.slice(i, i + (chunk || 60));
+      out = out.concat(await sb(path.replace('IN_LIST', part.join(','))));
+    }
+    return out;
+  }
+
+  function err(msg) {
+    $('#err').innerHTML = msg ? '<div class="err">' + msg + '</div>' : '';
+  }
+
+  // ---------- carrega dados ----------
+  async function load() {
+    err('Carregando…');
+    state.trk = await sb('/tracked_items?select=item_id,shop_id,name,created_at&order=created_at.desc&limit=500');
+    var ids = state.trk.map(function (t) { return t.item_id; });
+    var snaps = [], prods = [];
+    if (ids.length) {
+      var res = await Promise.all([
+        sbIn('/product_daily_snapshots?item_id=in.(IN_LIST)' +
+             '&select=item_id,snapshot_date,price,sold_30_days,historical_sold,rating_star,stock' +
+             '&order=item_id,snapshot_date.desc&limit=20000', ids, 50),
+        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,catid&limit=5000', ids, 60)
+      ]);
+      snaps = res[0]; prods = res[1];
+    }
+    state.snaps = {};
+    snaps.forEach(function (s) {
+      (state.snaps[s.item_id] = state.snaps[s.item_id] || []).push(s);
+    });
+    state.prods = {};
+    prods.forEach(function (p) { state.prods[p.item_id] = p; });
+    err('');
+    renderKpis(); renderTracked();
+  }
+
+  // ---------- métricas por item ----------
+  function soldVal(s) {
+    return s.sold_30_days != null ? s.sold_30_days : s.historical_sold;
+  }
+  function itemInfo(t) {
+    var arr = state.snaps[t.item_id] || [];
+    var latest = arr[0] || {};
+    var oldest7 = null;
+    var d7 = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+    for (var i = arr.length - 1; i >= 0; i--) {
+      if (arr[i].snapshot_date >= d7) { oldest7 = arr[i]; break; }
+    }
+    var delta7 = null;
+    if (oldest7 && soldVal(latest) != null && soldVal(oldest7) != null) {
+      var days = (new Date(latest.snapshot_date) - new Date(oldest7.snapshot_date)) / 864e5;
+      if (days >= 0.5) delta7 = (soldVal(latest) - soldVal(oldest7)) / days * 7;
+    }
+    var vendidos = soldVal(latest);
+    var receita = (vendidos != null && latest.price != null)
+      ? vendidos * latest.price : null;
+    var rating = latest.rating_star;
+    var name = t.name || (state.prods[t.item_id] || {}).name || '';
+    var catid = (state.prods[t.item_id] || {}).catid;
+    // sinal espelha a régua do 💎/view 006
+    var brecha = (rating != null && rating < 4.6);
+    var quente = delta7 != null && delta7 >= 20;
+    var sinal = !vendidos ? 'MONITOR'
+      : (vendidos >= 30 && vendidos <= 300 &&
+         latest.price >= 15 && latest.price <= 120 && brecha) ? '⚔️ BRECHA'
+      : (brecha || (vendidos >= 30 && rating != null && rating < 4.8)) ? '👀 BOM'
+      : 'MONITOR';
+    return { latest: latest, vendidos: vendidos, receita: receita,
+             rating: rating, delta7: delta7, name: name, catid: catid,
+             sinal: sinal, brecha: brecha, quente: quente };
+  }
+
+  function renderKpis() {
+    var infos = state.trk.map(itemInfo);
+    var vol = 0, rev = 0, nb = 0, nq = 0, lastSnap = null;
+    infos.forEach(function (i) {
+      vol += i.vendidos || 0; rev += i.receita || 0;
+      if (i.brecha) nb++; if (i.quente) nq++;
+      var d = i.latest.snapshot_date;
+      if (d && (!lastSnap || d > lastSnap)) lastSnap = d;
+    });
+    $('#k-items').textContent = nn(state.trk.length);
+    $('#k-vol').textContent = nn(vol);
+    $('#k-rev').textContent = brl(rev);
+    $('#k-brecha').textContent = nn(nb);
+    $('#k-quente').textContent = nn(nq);
+    $('#k-snap').textContent = lastSnap || '—';
+  }
+
+  // ---------- tabela trackados ----------
+  function metaOf(info) {
+    return {
+      vendidos: info.vendidos || 0,
+      receita: info.receita || 0,
+      rating: info.rating != null ? info.rating : 9,
+      delta7: info.delta7 != null ? info.delta7 : 0,
+      recente: 0 // mantém ordem created_at desc
+    };
+  }
+
+  function renderTracked() {
+    var q = ($('#f-search').value || '').toLowerCase();
+    var sort = $('#f-sort').value;
+    var group = $('#f-group').value;
+    var onlyBrecha = $('#f-onlybrecha').checked;
+
+    var rows = state.trk.map(function (t) {
+      var i = itemInfo(t);
+      return { t: t, i: i };
+    }).filter(function (r) {
+      if (onlyBrecha && !r.i.brecha) return false;
+      if (!q) return true;
+      return (r.i.name || '').toLowerCase().indexOf(q) !== -1 ||
+             String(r.t.item_id).indexOf(q) !== -1;
+    });
+
+    rows.sort(function (a, b) { return metaOf(b.i)[sort] - metaOf(a.i)[sort]; });
+
+    var body = '';
+    var lastGroup = null;
+    rows.forEach(function (r) {
+      if (group !== 'none') {
+        var g = group === 'catid'
+          ? 'Categoria ' + (r.i.catid || '?')
+          : r.i.sinal;
+        if (g !== lastGroup) {
+          body += '<tr class="grouphead"><td colspan="8">' + g + '</td></tr>';
+          lastGroup = g;
+        }
+      }
+      var st = r.i.latest;
+      body += '<tr>' +
+        '<td><a href="' + link(r.t) + '" target="_blank" rel="noopener">' +
+          (r.i.name || 'item ' + r.t.item_id) + '</a>' +
+          '<br><span class="muted">' + r.t.item_id + '</span></td>' +
+        '<td class="num">' + brl(st.price) + '</td>' +
+        '<td class="num">' + nn(r.i.vendidos) +
+          (st.sold_30_days == null && r.i.vendidos != null ? ' <span class="muted">tot</span>' : '') + '</td>' +
+        '<td class="num">' + (r.i.delta7 != null ? '+' + r.i.delta7.toFixed(1) : '—') + '</td>' +
+        '<td class="num">' + brl(r.i.receita) + '</td>' +
+        '<td class="num">' + (r.i.rating != null ? r.i.rating.toFixed(2) + '★' : '—') + '</td>' +
+        '<td><span class="tag ' +
+          (r.i.sinal.indexOf('BRECHA') !== -1 ? 'brecha'
+          : r.i.sinal.indexOf('BOM') !== -1 ? 'bom' : 'monitor') + '">' +
+          r.i.sinal + '</span>' +
+          (r.i.quente ? ' <span class="tag quente">🔥</span>' : '') + '</td>' +
+        '<td><button class="untrk" data-id="' + r.t.item_id + '" title="parar de acompanhar">✕</button></td>' +
+      '</tr>';
+    });
+    $('#tbl-tracked thead').innerHTML =
+      '<tr><th>Produto</th><th class="num">Preço</th><th class="num">Vendidos</th>' +
+      '<th class="num">Δ7d</th><th class="num">Receita 30d</th><th class="num">Rating</th>' +
+      '<th>Sinal</th><th></th></tr>';
+    $('#tbl-tracked tbody').innerHTML = body ||
+      '<tr><td colspan="8" class="muted">nada por aqui</td></tr>';
+
+    document.querySelectorAll('#tbl-tracked .untrk').forEach(function (b) {
+      b.onclick = function () { untrack(b.dataset.id); };
+    });
+  }
+
+  async function untrack(id) {
+    try {
+      await sb('/tracked_items?item_id=eq.' + id, { method: 'DELETE' });
+      state.trk = state.trk.filter(function (t) { return String(t.item_id) !== String(id); });
+      delete state.snaps[id];
+      renderKpis(); renderTracked();
+    } catch (e) { err('Erro ao desmarcar: ' + e.message); }
+  }
+
+  // ---------- oportunidades ----------
+  async function renderOpps() {
+    err('Carregando oportunidades…');
+    try {
+      var rows = await sb('/vw_breach_opportunities?select=*' +
+        '&order=opportunity_score.desc&limit=80');
+      var body = rows.map(function (r) {
+        var sinal = r.sinal || 'MONITOR';
+        return '<tr>' +
+          '<td><a href="' + link(r) + '" target="_blank" rel="noopener">' +
+            (r.name || 'item ' + r.item_id) + '</a>' +
+            '<br><span class="muted">' + r.item_id + '</span></td>' +
+          '<td class="num">' + r.opportunity_score + '</td>' +
+          '<td class="num">' + brl(r.price) + '</td>' +
+          '<td class="num">' + nn(r.sold_30_days) + '</td>' +
+          '<td class="num">' + nn(r.vendas_ultimos_7d) + '</td>' +
+          '<td class="num">' + brl(r.receita_30d) + '</td>' +
+          '<td class="num">' + brl(r.lucro_unitario_bruto) + '</td>' +
+          '<td class="num">' + brl(r.cmv_teto_20pct) + '</td>' +
+          '<td class="num">' + (r.product_rating != null ? r.product_rating.toFixed(2) + '★' : '—') + '</td>' +
+          '<td><span class="tag ' +
+            (sinal === 'OPORTUNIDADE' ? 'brecha'
+            : sinal === 'BOM SINAL' ? 'bom' : 'monitor') + '">' + sinal + '</span></td>' +
+        '</tr>';
+      }).join('');
+      $('#tbl-opps thead').innerHTML =
+        '<tr><th>Produto</th><th class="num">Score</th><th class="num">Preço</th>' +
+        '<th class="num">30d</th><th class="num">7d real</th><th class="num">Receita</th>' +
+        '<th class="num">Lucro/un</th><th class="num">CMV teto</th><th class="num">Rating</th><th>Sinal</th></tr>';
+      $('#tbl-opps tbody').innerHTML = body ||
+        '<tr><td colspan="10" class="muted">view vazia — rode a migration 006</td></tr>';
+      err('');
+    } catch (e) {
+      err('View não encontrada ou erro: ' + e.message +
+          ' — rode database/migrations/006_recalibrate_signals.sql no SQL Editor');
+    }
+  }
+
+  // ---------- UI ----------
+  document.querySelectorAll('.tab[data-t]').forEach(function (b) {
+    b.onclick = function () {
+      document.querySelectorAll('.tab[data-t]').forEach(function (x) {
+        x.classList.remove('on');
+      });
+      b.classList.add('on');
+      state.view = b.dataset.t;
+      $('#sec-tracked').hidden = state.view !== 'tracked';
+      $('#sec-opps').hidden = state.view !== 'opps';
+      $('#sec-cfg').hidden = state.view !== 'cfg';
+      if (state.view === 'opps') renderOpps();
+    };
+  });
+  $('#btn-refresh').onclick = function () { load().then(renderOpps && state.view === 'opps' ? renderOpps : renderTracked); };
+  ['f-search', 'f-sort', 'f-group', 'f-onlybrecha'].forEach(function (id) {
+    document.getElementById(id).oninput = renderTracked;
+  });
+
+  $('#cfg-url').value = S.url;
+  $('#cfg-key').value = S.key;
+  $('#cfg-save').onclick = function () {
+    S.url = $('#cfg-url').value.trim();
+    S.key = $('#cfg-key').value.trim();
+    localStorage.setItem('ssp_dash_cfg', JSON.stringify({ url: S.url, key: S.key }));
+    load();
+  };
+
+  load().catch(function (e) {
+    err('Falha ao carregar: ' + e.message + ' — confere a aba ⚙️ Conexão');
+  });
+})();
+</script>
+</body>
+</html>
