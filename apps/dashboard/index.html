@@ -806,6 +806,30 @@
   }
 
   // ---------- oportunidades ----------
+  // traduz a linha da view em "por que isso é oportunidade" —
+  // mesmas brechas da régua do sinal, agora legíveis
+  function oppWhy(r) {
+    var w = [];
+    if (r.product_rating != null && r.product_rating < 4.6)
+      w.push('⭐ nota ' + r.product_rating.toFixed(2) + '★');
+    if (r.chat_rate != null && r.chat_rate < 70)
+      w.push('💬 chat ' + Math.round(r.chat_rate) + '%');
+    if (r.shop_rating != null && r.shop_rating < 4.7)
+      w.push('🏪 loja ' + r.shop_rating.toFixed(2) + '★');
+    if (r.anuncio_idade_dias != null && r.anuncio_idade_dias <= 150 &&
+        (r.sold_30_days || 0) >= 500)
+      w.push('🔥 anúncio novo (' + r.anuncio_idade_dias + 'd) vendendo');
+    if ((r.vendas_ultimos_7d || 0) > 0)
+      w.push('📈 ' + r.vendas_ultimos_7d + ' vendas reais em 7d');
+    if (r.lucro_unitario_bruto != null && r.lucro_unitario_bruto <= 5)
+      w.push('💸 margem fina');
+    if (!w.length)
+      return r.sinal === 'MONITOR'
+        ? 'vende, mas sem brecha explorável — incumbente ok'
+        : '—';
+    return w.join(' · ');
+  }
+
   async function renderOpps() {
     err('Carregando oportunidades…');
     try {
@@ -825,6 +849,7 @@
           '<td class="num">' + brl(r.lucro_unitario_bruto) + '</td>' +
           '<td class="num">' + brl(r.cmv_teto_20pct) + '</td>' +
           '<td class="num">' + (r.product_rating != null ? r.product_rating.toFixed(2) + '★' : '—') + '</td>' +
+          '<td>' + oppWhy(r) + '</td>' +
           '<td><span class="tag ' +
             (sinal === 'OPORTUNIDADE' ? 'brecha'
             : sinal === 'BOM SINAL' ? 'bom' : 'monitor') + '">' + sinal + '</span></td>' +
@@ -833,9 +858,10 @@
       $('#tbl-opps thead').innerHTML =
         '<tr><th>Produto</th><th class="num">Score</th><th class="num">Preço</th>' +
         '<th class="num">30d</th><th class="num">7d real</th><th class="num">Receita</th>' +
-        '<th class="num">Lucro/un</th><th class="num">CMV teto</th><th class="num">Rating</th><th>Sinal</th></tr>';
+        '<th class="num">Lucro/un</th><th class="num">CMV teto</th><th class="num">Rating</th>' +
+        '<th>Por quê</th><th>Sinal</th></tr>';
       $('#tbl-opps tbody').innerHTML = body ||
-        '<tr><td colspan="10" class="muted">view vazia — rode a migration 006</td></tr>';
+        '<tr><td colspan="11" class="muted">view vazia — rode a migration 006</td></tr>';
       err('');
     } catch (e) {
       err('View não encontrada ou erro: ' + e.message +
