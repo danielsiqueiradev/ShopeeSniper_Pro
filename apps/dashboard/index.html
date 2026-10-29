@@ -243,7 +243,8 @@
       (((t.name || (state.prods[t.item_id] || {}).name || '') + '')
         .toLowerCase().replace(/[^a-zà-ú0-9 ]/g, ' ').split(/\s+/))
         .forEach(function (w) {
-          if (!STOP[w] && (freq[w] || 0) > bestN) { best = w; bestN = freq[w]; }
+          if (w.length < 4 || STOP[w]) return;
+          if ((freq[w] || 0) > bestN) { best = w; bestN = freq[w]; }
         });
       fam[t.item_id] = best
         ? best.charAt(0).toUpperCase() + best.slice(1) + ' (' + bestN + ')'
