@@ -57,6 +57,49 @@
   .cfg-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap;
              margin:8px 0; }
   .cfg-row input { width:90px; }
+  .tag.ip { background:#3a1026; color:#ff7ab8; }
+  .tag.seas { background:#2a1f33; color:#b98cff; }
+  .tag.alert { background:#33110a; color:#ff6b4a; }
+  .tag.st-observando { background:#26262e; color:var(--dim); }
+  .tag.st-cotando { background:#12233a; color:var(--info); }
+  .tag.st-teste { background:#332a10; color:var(--warn); }
+  .tag.st-escalando { background:#10331a; color:var(--ok); }
+  .tag.st-cortado { background:#3a1414; color:var(--bad); }
+  .spark { vertical-align:middle; }
+  .rowlink { cursor:pointer; }
+  .wow-up { color:var(--ok); } .wow-dn { color:var(--bad); }
+  /* ficha do item — drawer lateral direito */
+  #ficha { position:fixed; top:0; right:0; bottom:0; width:420px;
+           background:var(--panel); border-left:2px solid var(--acc);
+           padding:16px; overflow-y:auto; z-index:50;
+           box-shadow:-8px 0 24px rgba(0,0,0,.5); }
+  #ficha h3 { margin:4px 0 10px; font-size:15px; }
+  #ficha .f-close { float:right; background:none; border:none;
+                    color:var(--dim); font-size:18px; cursor:pointer; }
+  #ficha .f-close:hover { color:var(--acc); }
+  .f-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px;
+            margin:10px 0; }
+  .f-grid label { font-size:11px; color:var(--dim); display:block; }
+  .f-grid input, .f-grid select, .f-grid textarea {
+    width:100%; background:var(--panel2); border:1px solid #444;
+    border-radius:5px; color:var(--txt); padding:5px 7px; font-size:12px; }
+  .f-calc { background:var(--panel2); border:1px solid var(--line);
+            border-radius:6px; padding:10px 12px; margin:10px 0;
+            line-height:1.7; }
+  .f-calc b { color:var(--ok); }
+  .f-calc .neg { color:var(--bad); }
+  .f-save { background:var(--acc); border:none; border-radius:6px;
+            color:#fff; padding:8px 18px; cursor:pointer; font-size:13px; }
+  /* pipeline kanban */
+  .pipe { display:flex; gap:12px; align-items:flex-start; }
+  .pipe-col { flex:1; background:var(--panel); border:1px solid var(--line);
+              border-radius:8px; padding:10px; min-height:200px; }
+  .pipe-col h4 { margin:0 0 8px; font-size:12px; color:var(--warn); }
+  .pcard { background:var(--panel2); border:1px solid #3a3a44;
+           border-radius:6px; padding:8px; margin-bottom:8px;
+           cursor:pointer; font-size:12px; }
+  .pcard:hover { border-color:var(--acc); }
+  .pcard .muted { font-size:10px; }
 </style>
 </head>
 <body>
@@ -73,6 +116,7 @@
 <nav>
   <button class="tab on" data-t="tracked">📌 Trackados</button>
   <button class="tab" data-t="opps">💎 Oportunidades</button>
+  <button class="tab" data-t="pipe">🚀 Pipeline</button>
   <button class="tab" data-t="cfg">⚙️ Conexão</button>
   <button class="tab" id="btn-refresh" style="margin-left:auto">↻ Atualizar</button>
 </nav>
@@ -107,6 +151,12 @@
     <table id="tbl-opps"><thead></thead><tbody></tbody></table>
   </section>
 
+  <section id="sec-pipe" hidden>
+    <p class="muted">Status vem da ficha do item (📋 na lista). Colunas do
+      funil de decisão: observando → cotando → teste → escalando | cortado.</p>
+    <div class="pipe" id="pipe"></div>
+  </section>
+
   <section id="sec-cfg" hidden>
     <div class="cfg-row">
       <b>Supabase URL</b>
@@ -122,6 +172,32 @@
   </section>
 </main>
 
+<aside id="ficha" hidden>
+  <button class="f-close" id="ficha-x">✕</button>
+  <h3 id="f-title"></h3>
+  <div id="f-link" class="muted"></div>
+  <div class="f-calc" id="f-mkt"></div>
+  <div class="f-grid">
+    <div><label>Status</label>
+      <select id="f-status">
+        <option value="observando">👁 Observando</option>
+        <option value="cotando">📋 Cotando</option>
+        <option value="teste">🧪 Teste</option>
+        <option value="escalando">🚀 Escalando</option>
+        <option value="cortado">✂️ Cortado</option>
+      </select></div>
+    <div><label>Custo unit. (R$)</label><input id="f-cost" type="number" step="0.01"></div>
+    <div><label>Frete compra/un (R$)</label><input id="f-frete" type="number" step="0.01"></div>
+    <div><label>MOQ (un)</label><input id="f-moq" type="number"></div>
+    <div><label>Lead time (dias)</label><input id="f-lead" type="number"></div>
+    <div><label>Link fornecedor</label><input id="f-sup"></div>
+    <div style="grid-column:1/-1"><label>Notas</label>
+      <textarea id="f-notes" rows="2"></textarea></div>
+  </div>
+  <button class="f-save" id="f-save">💾 Salvar</button>
+  <div class="f-calc" id="f-roi"></div>
+</aside>
+
 <script>
 (function () {
   'use strict';
@@ -131,7 +207,24 @@
   var S = { url: DEFAULT_URL, key: DEFAULT_KEY };
   try { Object.assign(S, JSON.parse(localStorage.getItem('ssp_dash_cfg') || '{}')); } catch (e) {}
 
-  var state = { trk: [], snaps: {}, prods: {}, view: 'tracked' };
+  var state = { trk: [], snaps: {}, prods: {}, costs: {}, view: 'tracked' };
+
+  // espelha as taxas da extensão (MEI: imposto por un = 0, ads = 0)
+  var FEES = { comm: .14, commCap: 100, fs: .06, fixed: 4, tax: 0, ads: 0, margin: .20 };
+  function feesOf(p) {
+    return Math.min(p * FEES.comm, FEES.commCap) + p * FEES.fs +
+           (p < 8 ? p / 2 : FEES.fixed) + p * (FEES.tax + FEES.ads);
+  }
+  function posShopee(p) { return p == null ? null : p - feesOf(p); }
+  // menor preço cujo pós-shopee cobre o custo total — breakeven de guerra
+  function breakevenPrice(c) {
+    if (c == null || isNaN(c)) return null;
+    if (c < 2.4) return c / .30;              // faixa p<8: pós = .30p
+    if (c < 567.43) return (c + 4) / .80;     // faixa comum: pós = .80p-4
+    return (c + 104) / .94;                   // comissão no teto: pós = .94p-104
+  }
+  var IP_RE = /pok[eé]|disney|marvel|barbie|sanrio|hello\s*kitty|schylling|lego|labubu|kuromi|naruto|dragon\s*ball|harry\s*potter|minecraft|sonic|stitch|minnie|mickey|funko/i;
+  var SEAS_RE = /halloween|natal|p[aá]scoa|festa\s*junina|dia das crian|dia dos namorados|black friday|carnaval|ano novo/i;
 
   function $(s) { return document.querySelector(s); }
   function brl(v) { return (v == null || isNaN(v)) ? '—' :
@@ -140,9 +233,11 @@
   function link(it) { return 'https://shopee.com.br/product/' + it.shop_id + '/' + it.item_id; }
 
   async function sb(path, opts) {
-    var r = await fetch(S.url + '/rest/v1' + path, Object.assign({
-      headers: { apikey: S.key, Authorization: 'Bearer ' + S.key }
-    }, opts || {}));
+    opts = opts || {};
+    var h = { apikey: S.key, Authorization: 'Bearer ' + S.key };
+    if (opts.headers) { Object.assign(h, opts.headers); delete opts.headers; }
+    var r = await fetch(S.url + '/rest/v1' + path,
+                        Object.assign({ headers: h }, opts));
     if (!r.ok) throw new Error('HTTP ' + r.status + ' em ' + path.split('?')[0]);
     return r.status === 204 ? null : r.json();
   }
@@ -165,15 +260,17 @@
     err('Carregando…');
     state.trk = await sb('/tracked_items?select=item_id,shop_id,name,created_at&order=created_at.desc&limit=500');
     var ids = state.trk.map(function (t) { return t.item_id; });
-    var snaps = [], prods = [];
+    var snaps = [], prods = [], costs = [];
     if (ids.length) {
       var res = await Promise.all([
         sbIn('/product_daily_snapshots?item_id=in.(IN_LIST)' +
              '&select=item_id,snapshot_date,price,sold_30_days,historical_sold,rating_star,stock' +
              '&order=item_id,snapshot_date.desc&limit=20000', ids, 50),
-        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,category_id&limit=5000', ids, 60)
+        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,category_id&limit=5000', ids, 60),
+        sbIn('/item_costs?item_id=in.(IN_LIST)&select=*', ids, 60)
+          .catch(function () { return []; }) // tabela ainda não migrada → segue
       ]);
-      snaps = res[0]; prods = res[1];
+      snaps = res[0]; prods = res[1]; costs = res[2];
     }
     state.snaps = {};
     snaps.forEach(function (s) {
@@ -181,6 +278,8 @@
     });
     state.prods = {};
     prods.forEach(function (p) { state.prods[p.item_id] = p; });
+    state.costs = {};
+    costs.forEach(function (c) { state.costs[c.item_id] = c; });
     err('');
     renderKpis(); renderTracked();
   }
@@ -189,11 +288,19 @@
   function soldVal(s) {
     return s.sold_30_days != null ? s.sold_30_days : s.historical_sold;
   }
+  // sold do snapshot mais recente até uma data (arr vem desc)
+  function soldAt(arr, iso) {
+    for (var i = 0; i < arr.length; i++)
+      if (arr[i].snapshot_date <= iso) return soldVal(arr[i]);
+    return null;
+  }
+
   function itemInfo(t) {
     var arr = state.snaps[t.item_id] || [];
     var latest = arr[0] || {};
     var oldest7 = null;
     var d7 = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+    var d14 = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
     for (var i = arr.length - 1; i >= 0; i--) {
       if (arr[i].snapshot_date >= d7) { oldest7 = arr[i]; break; }
     }
@@ -202,6 +309,25 @@
       var days = (new Date(latest.snapshot_date) - new Date(oldest7.snapshot_date)) / 864e5;
       if (days >= 0.5) delta7 = (soldVal(latest) - soldVal(oldest7)) / days * 7;
     }
+    // WoW: vendas da última semana vs. semana anterior — aceleração > nível
+    var s7 = soldAt(arr, d7), s14 = soldAt(arr, d14), sNow = soldVal(latest);
+    var semana = (s7 != null && sNow != null) ? sNow - s7 : null;
+    var semanaPrev = (s14 != null && s7 != null) ? s7 - s14 : null;
+    var wow = (semana != null && semanaPrev > 0)
+      ? (semana / semanaPrev - 1) * 100 : null;
+    // série de preço (chronológica, últimos 14 pontos) + queda vs. pico
+    var priceSeries = arr.slice(0, 14).map(function (s) { return s.price; })
+                       .filter(function (p) { return p != null; }).reverse();
+    var pMax = priceSeries.length ? Math.max.apply(null, priceSeries) : null;
+    var priceDrop = (latest.price != null && pMax)
+      ? (latest.price / pMax - 1) * 100 : null;
+    // consistência: fração dos intervalos observados com venda positiva
+    var posI = 0, totI = 0;
+    for (var k = 0; k < arr.length - 1; k++) {
+      var a = soldVal(arr[k]), b = soldVal(arr[k + 1]);
+      if (a != null && b != null) { totI++; if (a - b > 0) posI++; }
+    }
+    var consist = totI ? posI / totI : null;
     var vendidos = soldVal(latest);
     var receita = (vendidos != null && latest.price != null)
       ? vendidos * latest.price : null;
@@ -216,8 +342,25 @@
          latest.price >= 15 && latest.price <= 120 && brecha) ? '⚔️ BRECHA'
       : (brecha || (vendidos >= 30 && rating != null && rating < 4.8)) ? '👀 BOM'
       : 'MONITOR';
+    var cost = state.costs[t.item_id] || {};
+    var custoTotal = (cost.unit_cost != null)
+      ? Number(cost.unit_cost) + Number(cost.buy_freight || 0) : null;
+    var lucroReal = (custoTotal != null && latest.price != null)
+      ? posShopee(latest.price) - custoTotal : null;
+    var roi = (lucroReal != null && custoTotal > 0)
+      ? lucroReal / custoTotal * 100 : null;
+    // payback: custo do lote ÷ (lucro/un × vendas/dia estimadas)
+    var vendasDia = (delta7 != null) ? delta7 / 7
+      : (vendidos != null ? vendidos / 30 : null);
+    var payback = (lucroReal > 0 && vendasDia > 0 && custoTotal != null)
+      ? (Number(cost.moq || 1) * custoTotal) / (lucroReal * vendasDia) : null;
     return { latest: latest, vendidos: vendidos, receita: receita,
-             rating: rating, delta7: delta7, name: name, catid: catid,
+             rating: rating, delta7: delta7, wow: wow, semana: semana,
+             priceSeries: priceSeries, priceDrop: priceDrop,
+             consist: consist, stockZero: latest.stock === 0,
+             name: name, catid: catid, cost: cost, custoTotal: custoTotal,
+             lucroReal: lucroReal, roi: roi, payback: payback,
+             ip: IP_RE.test(name), seas: SEAS_RE.test(name),
              sinal: sinal, brecha: brecha, quente: quente };
   }
 
@@ -302,16 +445,29 @@
     var body = '';
     var lastGroup = null;
     var fams = group === 'familia' ? buildFamilies() : null;
+    var famStats = {};
     if (fams) {
-      // dentro de família, mantém a ordenação escolhida; ordena famílias
-      // pela soma de vendas pra família quente vir primeiro
-      var famVol = {};
+      // stats por família: volume, receita e concentração top-3 —
+      // nicho pulverizado (top-3 <50%) = entrada fácil
       rows.forEach(function (r) {
         var f = fams[r.t.item_id];
-        famVol[f] = (famVol[f] || 0) + (r.i.vendidos || 0);
+        (famStats[f] = famStats[f] || { vol: 0, rec: 0, revs: [], rats: [] });
+        var s = famStats[f];
+        s.vol += r.i.vendidos || 0;
+        s.rec += r.i.receita || 0;
+        s.revs.push(r.i.receita || 0);
+        if (r.i.rating != null) s.rats.push(r.i.rating);
+      });
+      Object.keys(famStats).forEach(function (f) {
+        var s = famStats[f];
+        s.revs.sort(function (a, b) { return b - a; });
+        s.top3 = s.rec > 0
+          ? Math.round(((s.revs[0] || 0) + (s.revs[1] || 0) + (s.revs[2] || 0))
+                       / s.rec * 100) : 0;
       });
       rows.sort(function (a, b) {
-        var d = (famVol[fams[b.t.item_id]] || 0) - (famVol[fams[a.t.item_id]] || 0);
+        var d = (famStats[fams[b.t.item_id]].vol || 0) -
+                (famStats[fams[a.t.item_id]].vol || 0);
         return d || metaOf(b.i)[sort] - metaOf(a.i)[sort];
       });
     }
@@ -321,38 +477,215 @@
           : group === 'catid' ? 'Categoria ' + (r.i.catid || '?')
           : r.i.sinal;
         if (g !== lastGroup) {
-          body += '<tr class="grouphead"><td colspan="8">' + g + '</td></tr>';
+          var fs = fams && famStats[g];
+          body += '<tr class="grouphead"><td colspan="11">' + g +
+            (fs ? ' <span class="muted" style="font-weight:400">' +
+                  '· ' + nn(fs.vol) + ' vendidos · ' + brl(fs.rec) +
+                  ' · top-3 ' + fs.top3 + '% receita' +
+                  (fs.top3 < 50 ? ' <span class="tag brecha">pulverizado</span>' : '') +
+                  '</span>' : '') +
+            '</td></tr>';
           lastGroup = g;
         }
       }
       var st = r.i.latest;
-      body += '<tr>' +
+      var flags = (r.i.ip ? ' <span class="tag ip">⚠️ IP</span>' : '') +
+                  (r.i.seas ? ' <span class="tag seas">🗓 sazonal</span>' : '') +
+                  (r.i.priceDrop != null && r.i.priceDrop < -10
+                    ? ' <span class="tag alert">💸 preço -' + Math.abs(r.i.priceDrop).toFixed(0) + '%</span>' : '') +
+                  (r.i.wow != null && r.i.wow < -30
+                    ? ' <span class="tag alert">📉 demanda ' + r.i.wow.toFixed(0) + '%</span>' : '') +
+                  (r.i.stockZero ? ' <span class="tag quente">📦 zerou</span>' : '');
+      var stat = r.i.cost.status;
+      body += '<tr class="rowlink" data-ficha="' + r.t.item_id + '">' +
         '<td><a href="' + link(r.t) + '" target="_blank" rel="noopener">' +
           (r.i.name || 'item ' + r.t.item_id) + '</a>' +
-          '<br><span class="muted">' + r.t.item_id + '</span></td>' +
-        '<td class="num">' + brl(st.price) + '</td>' +
+          '<br><span class="muted">' + r.t.item_id + '</span>' + flags + '</td>' +
+        '<td class="num">' + brl(st.price) + '<br>' + spark(r.i.priceSeries) + '</td>' +
         '<td class="num">' + nn(r.i.vendidos) +
           (st.sold_30_days == null && r.i.vendidos != null ? ' <span class="muted">tot</span>' : '') + '</td>' +
-        '<td class="num">' + (r.i.delta7 != null ? '+' + r.i.delta7.toFixed(1) : '—') + '</td>' +
+        '<td class="num">' + (r.i.delta7 != null ? '+' + r.i.delta7.toFixed(1) : '—') +
+          (r.i.wow != null
+            ? '<br><span class="' + (r.i.wow >= 0 ? 'wow-up' : 'wow-dn') + '">' +
+              (r.i.wow >= 0 ? '+' : '') + r.i.wow.toFixed(0) + '% wow</span>' : '') + '</td>' +
         '<td class="num">' + brl(r.i.receita) + '</td>' +
         '<td class="num">' + (r.i.rating != null ? r.i.rating.toFixed(2) + '★' : '—') + '</td>' +
+        '<td class="num">' + (r.i.lucroReal != null ? brl(r.i.lucroReal) +
+          '<br><span class="' + (r.i.roi >= 30 ? 'wow-up' : 'wow-dn') + '">ROI ' +
+          r.i.roi.toFixed(0) + '%</span>' : '<span class="muted">sem custo</span>') + '</td>' +
+        '<td class="num">' + (r.i.payback != null ? r.i.payback.toFixed(0) + 'd' : '—') + '</td>' +
         '<td><span class="tag ' +
           (r.i.sinal.indexOf('BRECHA') !== -1 ? 'brecha'
           : r.i.sinal.indexOf('BOM') !== -1 ? 'bom' : 'monitor') + '">' +
           r.i.sinal + '</span>' +
-          (r.i.quente ? ' <span class="tag quente">🔥</span>' : '') + '</td>' +
+          (r.i.quente ? ' <span class="tag quente">🔥</span>' : '') +
+          (stat ? '<br><span class="tag st-' + stat + '">' + stat + '</span>' : '') + '</td>' +
         '<td><button class="untrk" data-id="' + r.t.item_id + '" title="parar de acompanhar">✕</button></td>' +
       '</tr>';
     });
     $('#tbl-tracked thead').innerHTML =
       '<tr><th>Produto</th><th class="num">Preço</th><th class="num">Vendidos</th>' +
-      '<th class="num">Δ7d</th><th class="num">Receita 30d</th><th class="num">Rating</th>' +
-      '<th>Sinal</th><th></th></tr>';
+      '<th class="num">Δ7d/WoW</th><th class="num">Receita 30d</th><th class="num">Rating</th>' +
+      '<th class="num">Lucro real/un</th><th class="num">Payback</th><th>Sinal</th><th></th></tr>';
     $('#tbl-tracked tbody').innerHTML = body ||
-      '<tr><td colspan="8" class="muted">nada por aqui</td></tr>';
+      '<tr><td colspan="11" class="muted">nada por aqui</td></tr>';
+    document.querySelectorAll('#tbl-tracked .rowlink').forEach(function (tr) {
+      tr.onclick = function (e) {
+        if (e.target.closest('a') || e.target.closest('button')) return;
+        openFicha(tr.dataset.ficha);
+      };
+    });
 
     document.querySelectorAll('#tbl-tracked .untrk').forEach(function (b) {
       b.onclick = function () { untrack(b.dataset.id); };
+    });
+  }
+
+  // sparkline SVG inline — 14 últimos preços, marca queda recente
+  function spark(series) {
+    if (!series || series.length < 2) return '';
+    var w = 64, h = 16;
+    var mn = Math.min.apply(null, series), mx = Math.max.apply(null, series);
+    var rng = (mx - mn) || 1;
+    var pts = series.map(function (p, i) {
+      return (i / (series.length - 1) * w).toFixed(1) + ',' +
+             (h - (p - mn) / rng * h).toFixed(1);
+    }).join(' ');
+    var down = series[series.length - 1] < series[0];
+    return '<svg class="spark" width="' + w + '" height="' + h + '">' +
+      '<polyline fill="none" stroke-width="1.5" points="' + pts + '" stroke="' +
+      (down ? '#ff7a7a' : '#7fd87f') + '"/></svg>';
+  }
+
+  // ---------- ficha do item ----------
+  var fichaId = null;
+  function openFicha(id) {
+    fichaId = id;
+    var t = state.trk.filter(function (x) { return String(x.item_id) === String(id); })[0];
+    if (!t) return;
+    var i = itemInfo(t);
+    var st = i.latest;
+    $('#f-title').textContent = i.name || 'item ' + id;
+    $('#f-link').innerHTML = '<a href="' + link(t) + '" target="_blank" rel="noopener">' +
+      id + ' ↗</a>';
+    $('#f-mkt').innerHTML =
+      'Preço <b>' + brl(st.price) + '</b> · vendidos <b>' + nn(i.vendidos) + '</b>' +
+      ' · rating <b>' + (i.rating != null ? i.rating.toFixed(2) + '★' : '—') + '</b><br>' +
+      'Δ7d <b>' + (i.delta7 != null ? '+' + i.delta7.toFixed(1) : '—') + '</b>' +
+      (i.wow != null ? ' · WoW <b class="' + (i.wow >= 0 ? 'wow-up' : 'wow-dn') + '">' +
+        (i.wow >= 0 ? '+' : '') + i.wow.toFixed(0) + '%</b>' : '') +
+      (i.consist != null ? ' · consistência <b>' + (i.consist * 100).toFixed(0) + '%</b>' : '') +
+      '<br>Pós-Shopee/un <b>' + brl(posShopee(st.price)) + '</b>' +
+      ' · CMV teto ' + brl(posShopee(st.price) - FEES.margin * st.price) +
+      '<br>' + spark(i.priceSeries);
+    var c = i.cost;
+    $('#f-status').value = c.status || 'observando';
+    $('#f-cost').value = c.unit_cost != null ? c.unit_cost : '';
+    $('#f-frete').value = c.buy_freight != null ? c.buy_freight : '';
+    $('#f-moq').value = c.moq || '';
+    $('#f-lead').value = c.lead_time_days || '';
+    $('#f-sup').value = c.supplier_url || '';
+    $('#f-notes').value = c.notes || '';
+    renderRoi(i);
+    $('#ficha').hidden = false;
+  }
+  function renderRoi(i) {
+    var c = i.cost;
+    var custo = $('#f-cost').value !== '' || $('#f-frete').value !== ''
+      ? (Number($('#f-cost').value) || 0) + (Number($('#f-frete').value) || 0)
+      : i.custoTotal;
+    var moq = Number($('#f-moq').value) || c.moq || 1;
+    var lucro = (custo != null && i.latest.price != null)
+      ? posShopee(i.latest.price) - custo : null;
+    var roi = (lucro != null && custo > 0) ? lucro / custo * 100 : null;
+    var vendasDia = (i.delta7 != null) ? i.delta7 / 7
+      : (i.vendidos != null ? i.vendidos / 30 : null);
+    var payback = (lucro > 0 && vendasDia > 0)
+      ? (moq * custo) / (lucro * vendasDia) : null;
+    var be = breakevenPrice(custo);
+    var scen = '';
+    if (lucro != null && i.vendidos) {
+      scen = '<br>Cenários (share do volume atual): ' +
+        [5, 15, 25].map(function (sh) {
+          return sh + '% → <b>' + brl(lucro * i.vendidos * sh / 100) + '/mês</b>';
+        }).join(' · ');
+    }
+    $('#f-roi').innerHTML = custo == null
+      ? 'Preenche o <b>custo do fornecedor</b> pra destravar ROI, ' +
+        'payback, breakeven e cenários.'
+      : 'Custo total/un <b>' + brl(custo) + '</b><br>' +
+        'Lucro real/un <b class="' + (lucro > 0 ? '' : 'neg') + '">' + brl(lucro) + '</b>' +
+        ' · ROI <b>' + (roi != null ? roi.toFixed(0) + '%' : '—') + '</b><br>' +
+        'Breakeven (preço mínimo p/ não perder): <b>' + brl(be) + '</b><br>' +
+        'Payback do lote (' + moq + ' un): <b>' +
+          (payback != null ? payback.toFixed(0) + ' dias' : '—') + '</b>' +
+        scen;
+  }
+  async function saveCost() {
+    if (!fichaId) return;
+    var num = function (sel) {
+      var v = $(sel).value.trim();
+      return v === '' ? null : Number(v);
+    };
+    try {
+      await sb('/item_costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+                   'Prefer': 'resolution=merge-duplicates' },
+        body: JSON.stringify({
+          item_id: Number(fichaId),
+          status: $('#f-status').value,
+          unit_cost: num('#f-cost'),
+          buy_freight: num('#f-frete') || 0,
+          moq: num('#f-moq') || 1,
+          lead_time_days: num('#f-lead'),
+          supplier_url: $('#f-sup').value.trim() || null,
+          notes: $('#f-notes').value.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+      });
+      state.costs[fichaId] = {
+        item_id: Number(fichaId), status: $('#f-status').value,
+        unit_cost: num('#f-cost'), buy_freight: num('#f-frete') || 0,
+        moq: num('#f-moq') || 1, lead_time_days: num('#f-lead'),
+        supplier_url: $('#f-sup').value.trim() || null,
+        notes: $('#f-notes').value.trim() || null
+      };
+      renderTracked();
+      $('#f-save').textContent = '✔ salvo';
+      setTimeout(function () { $('#f-save').textContent = '💾 Salvar'; }, 1200);
+    } catch (e) {
+      err('Erro ao salvar custo — rodou a migration 007? ' + e.message);
+    }
+  }
+
+  // ---------- pipeline ----------
+  function renderPipeline() {
+    var cols = ['observando', 'cotando', 'teste', 'escalando', 'cortado'];
+    var labels = { observando: '👁 Observando', cotando: '📋 Cotando',
+                   teste: '🧪 Teste', escalando: '🚀 Escalando',
+                   cortado: '✂️ Cortado' };
+    var html = '';
+    cols.forEach(function (c) {
+      var cards = state.trk.filter(function (t) {
+        return (state.costs[t.item_id] || {}).status === c;
+      }).map(function (t) {
+        var i = itemInfo(t);
+        return '<div class="pcard" data-ficha="' + t.item_id + '">' +
+          '<b>' + (i.name || 'item ' + t.item_id) + '</b><br>' +
+          '<span class="muted">' + nn(i.vendidos) + ' vendidos · ' +
+          brl(i.latest.price) + '</span>' +
+          (i.roi != null ? '<br><span class="' +
+            (i.roi >= 30 ? 'wow-up' : 'wow-dn') + '">ROI ' + i.roi.toFixed(0) + '%</span>' +
+            (i.payback != null ? ' · payback ' + i.payback.toFixed(0) + 'd' : '') : '') +
+          '</div>';
+      }).join('');
+      html += '<div class="pipe-col"><h4>' + labels[c] + '</h4>' +
+        (cards || '<span class="muted">—</span>') + '</div>';
+    });
+    $('#pipe').innerHTML = html;
+    document.querySelectorAll('.pcard').forEach(function (p) {
+      p.onclick = function () { openFicha(p.dataset.ficha); };
     });
   }
 
@@ -413,11 +746,28 @@
       state.view = b.dataset.t;
       $('#sec-tracked').hidden = state.view !== 'tracked';
       $('#sec-opps').hidden = state.view !== 'opps';
+      $('#sec-pipe').hidden = state.view !== 'pipe';
       $('#sec-cfg').hidden = state.view !== 'cfg';
       if (state.view === 'opps') renderOpps();
+      if (state.view === 'pipe') renderPipeline();
     };
   });
-  $('#btn-refresh').onclick = function () { load().then(renderOpps && state.view === 'opps' ? renderOpps : renderTracked); };
+  $('#btn-refresh').onclick = function () {
+    load().then(function () {
+      if (state.view === 'opps') renderOpps();
+      if (state.view === 'pipe') renderPipeline();
+    });
+  };
+  $('#ficha-x').onclick = function () { $('#ficha').hidden = true; };
+  $('#f-save').onclick = saveCost;
+  ['#f-cost', '#f-frete', '#f-moq'].forEach(function (sel) {
+    $(sel).oninput = function () {
+      var t = state.trk.filter(function (x) {
+        return String(x.item_id) === String(fichaId);
+      })[0];
+      if (t) renderRoi(itemInfo(t));
+    };
+  });
   ['f-search', 'f-sort', 'f-group', 'f-onlybrecha'].forEach(function (id) {
     document.getElementById(id).oninput = renderTracked;
   });
