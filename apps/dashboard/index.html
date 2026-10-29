@@ -65,6 +65,10 @@
   .tag.st-teste { background:#332a10; color:var(--warn); }
   .tag.st-escalando { background:#10331a; color:var(--ok); }
   .tag.st-cortado { background:#3a1414; color:var(--bad); }
+  .tag.vd-ok { background:#10331a; color:var(--ok); }
+  .tag.vd-warn { background:#332a10; color:var(--warn); }
+  .tag.vd-bad { background:#3a1414; color:var(--bad); }
+  .tag.vd-dim { background:#26262e; color:var(--dim); }
   .spark { vertical-align:middle; }
   .rowlink { cursor:pointer; }
   .wow-up { color:var(--ok); } .wow-dn { color:var(--bad); }
@@ -136,9 +140,17 @@
       </select>
       <select id="f-group">
         <option value="familia">Agrupar: família</option>
+        <option value="verd">Agrupar: veredito</option>
         <option value="sinal">Agrupar: sinal</option>
         <option value="catid">Agrupar: categoria ID</option>
         <option value="none">Sem grupo</option>
+      </select>
+      <select id="f-verd">
+        <option value="">Veredito: todos</option>
+        <option value="entrar">🟢 ESPAÇO PRA ENTRAR</option>
+        <option value="brigar">🟡 DÁ PRA BRIGAR</option>
+        <option value="solido">🔴 Incumbente sólido</option>
+        <option value="magro">🔍 Dados magros</option>
       </select>
       <label class="muted"><input type="checkbox" id="f-onlybrecha"> só com brecha</label>
     </div>
@@ -264,13 +276,20 @@
     if (ids.length) {
       var res = await Promise.all([
         sbIn('/product_daily_snapshots?item_id=in.(IN_LIST)' +
-             '&select=item_id,snapshot_date,price,sold_30_days,historical_sold,rating_star,stock' +
+             '&select=item_id,snapshot_date,price,sold_30_days,historical_sold,rating_star,rating_count,stock' +
              '&order=item_id,snapshot_date.desc&limit=20000', ids, 50),
-        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,category_id&limit=5000', ids, 60),
+        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,category_id,shop_id&limit=5000', ids, 60),
         sbIn('/item_costs?item_id=in.(IN_LIST)&select=*', ids, 60)
-          .catch(function () { return []; }) // tabela ainda não migrada → segue
+          .catch(function () { return []; }), // tabela ainda não migrada → segue
+        sbIn('/product_sku_models?item_id=in.(IN_LIST)&select=item_id', ids, 60)
+          .catch(function () { return []; })
       ]);
       snaps = res[0]; prods = res[1]; costs = res[2];
+      var skuRows = res[3];
+      state.skuCounts = {};
+      skuRows.forEach(function (m) {
+        state.skuCounts[m.item_id] = (state.skuCounts[m.item_id] || 0) + 1;
+      });
     }
     state.snaps = {};
     snaps.forEach(function (s) {
@@ -280,6 +299,17 @@
     prods.forEach(function (p) { state.prods[p.item_id] = p; });
     state.costs = {};
     costs.forEach(function (c) { state.costs[c.item_id] = c; });
+    // dados de loja — alimentam o veredito 🟢🟡🔴 (mesma régua do drawer)
+    state.shops = {};
+    var shopIds = [];
+    state.trk.forEach(function (t) { if (t.shop_id) shopIds.push(t.shop_id); });
+    if (shopIds.length) {
+      var shopRows = await sbIn(
+        '/competitor_shops?shop_id=in.(IN_LIST)' +
+        '&select=shop_id,shop_name,location,rating_star,response_rate',
+        shopIds, 60).catch(function () { return []; });
+      shopRows.forEach(function (s) { state.shops[s.shop_id] = s; });
+    }
     err('');
     renderKpis(); renderTracked();
   }
@@ -364,6 +394,49 @@
              sinal: sinal, brecha: brecha, quente: quente };
   }
 
+  // veredito 🟢🟡🔴 — mesma régua do ⚔️ Plano de Entrada do drawer.
+  // Pain Miner, fotos e reviews textuais só existem na PDP; aqui conta o
+  // que o banco tem (nota, avaliações, chat, loja, variações, economia)
+  function verdictOf(i, t) {
+    var shop = state.shops[t.shop_id] || {};
+    var st = i.latest;
+    var price = st.price, rating = i.rating, rcount = st.rating_count;
+    var fortes = 0, meds = 0, moves = 0;
+    if (shop.response_rate != null && shop.response_rate < 70) {
+      moves++; shop.response_rate < 45 ? fortes++ : meds++;
+    }
+    if (rating != null && rating < 4.6) {
+      moves++; rating < 4.4 ? fortes++ : meds++;
+    }
+    if (rating != null && rating >= 4.7 && rcount != null &&
+        rcount > 0 && rcount < 15) { moves++; meds++; }
+    var nVar = state.skuCounts[t.item_id] || 0;
+    if (nVar && nVar <= 2) { moves++; meds++; }
+    if (shop.location && !/brasil|brazil/i.test(shop.location)) {
+      moves++; meds++;
+    }
+    if (shop.rating_star != null && shop.rating_star < 4.7) {
+      moves++; meds++;
+    }
+    if (price) {
+      var liq = posShopee(price);
+      if (liq - FEES.margin * price <= 0) { moves++; fortes++; }
+      else if (liq < 5) { moves++; meds++; }
+    }
+    if (shop.rating_star == null && shop.response_rate == null &&
+        rating == null) {
+      return { v: '🔍 Dados magros', cls: 'dim', k: 'magro' };
+    }
+    if (fortes >= 2)
+      return { v: '🟢 ESPAÇO PRA ENTRAR', cls: 'ok', k: 'entrar',
+               d: fortes + ' falhas fortes + demanda provada' };
+    if (fortes === 1 || meds >= 2 || moves >= 3)
+      return { v: '🟡 DÁ PRA BRIGAR', cls: 'warn', k: 'brigar',
+               d: 'confirma a saída: acompanha 1 semana' };
+    return { v: '🔴 Incumbente sólido', cls: 'bad', k: 'solido',
+             d: 'só entra com produto/preço claramente melhor' };
+  }
+
   // família = token mais frequente do nome entre os trackados —
   // agrupa "Squishy Morango", "Squishy Animais"… sob "Squishy"
   var STOP = { kit:1, com:1, para:1, unidade:1, unidades:1, novo:1, nova:1,
@@ -428,12 +501,14 @@
     var q = ($('#f-search').value || '').toLowerCase();
     var sort = $('#f-sort').value;
     var group = $('#f-group').value;
+    var verdF = $('#f-verd').value;
     var onlyBrecha = $('#f-onlybrecha').checked;
 
     var rows = state.trk.map(function (t) {
       var i = itemInfo(t);
-      return { t: t, i: i };
+      return { t: t, i: i, vd: verdictOf(i, t) };
     }).filter(function (r) {
+      if (verdF && r.vd.k !== verdF) return false;
       if (onlyBrecha && !r.i.brecha) return false;
       if (!q) return true;
       return (r.i.name || '').toLowerCase().indexOf(q) !== -1 ||
@@ -474,6 +549,7 @@
     rows.forEach(function (r) {
       if (group !== 'none') {
         var g = fams ? fams[r.t.item_id]
+          : group === 'verd' ? r.vd.v
           : group === 'catid' ? 'Categoria ' + (r.i.catid || '?')
           : r.i.sinal;
         if (g !== lastGroup) {
@@ -519,6 +595,8 @@
           : r.i.sinal.indexOf('BOM') !== -1 ? 'bom' : 'monitor') + '">' +
           r.i.sinal + '</span>' +
           (r.i.quente ? ' <span class="tag quente">🔥</span>' : '') +
+          '<br><span class="tag vd-' + r.vd.cls + '" title="' +
+            (r.vd.d || '') + '">' + r.vd.v + '</span>' +
           (stat ? '<br><span class="tag st-' + stat + '">' + stat + '</span>' : '') + '</td>' +
         '<td><button class="untrk" data-id="' + r.t.item_id + '" title="parar de acompanhar">✕</button></td>' +
       '</tr>';
@@ -768,7 +846,7 @@
       if (t) renderRoi(itemInfo(t));
     };
   });
-  ['f-search', 'f-sort', 'f-group', 'f-onlybrecha'].forEach(function (id) {
+  ['f-search', 'f-sort', 'f-group', 'f-verd', 'f-onlybrecha'].forEach(function (id) {
     document.getElementById(id).oninput = renderTracked;
   });
 
