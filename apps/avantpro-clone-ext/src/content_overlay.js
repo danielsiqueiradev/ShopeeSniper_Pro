@@ -145,12 +145,33 @@
     price: 1, price_min: 1, price_max: 1,
     price_before_discount: 1, raw_price: 1
   };
+  // PDP (item/get, pdp/get_pc) traz `sold` = acumulado total da página,
+  // o mesmo "X vendidos" do topo — não é mês. Listagens (search/recommend)
+  // trazem `sold` = vendas de 30d. Reconhece PDP pelos campos ricos que só
+  // ela tem e realoca o valor: sem isso, acumulado histórico inflava
+  // badge, filtro 💎 e a coluna sold_30_days do banco.
+  var PDP_FIELDS = ['models', 'description', 'attributes', 'item_status'];
+  function isPdpShape(i) {
+    return PDP_FIELDS.some(function (f) { return i[f] != null; });
+  }
+  function fixSoldSemantics(it) {
+    if (it.sold == null) return;
+    if (it.historical_sold != null) {
+      // sold ≈ histórico → é o acumulado duplicado, não mês
+      if (it.sold >= it.historical_sold * 0.9) it.sold = null;
+    } else if (isPdpShape(it)) {
+      it.historical_sold = it.sold;
+      it.sold = null;
+    }
+  }
+
   function normItem(it) {
     for (var k in SSP_PRICE_KEYS) {
       if (typeof it[k] === 'number' && it[k] > 100000) {
         it[k] = it[k] / 100000;
       }
     }
+    fixSoldSemantics(it);
     if (it.ctime && !it.created_date) {
       var d = new Date(it.ctime * 1000);
       it.created_date = ('0' + d.getDate()).slice(-2) + '/' +

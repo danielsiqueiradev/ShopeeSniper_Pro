@@ -174,6 +174,24 @@ function extractForRpc(p) {
   } else if (data.itemid || data.item_id) {
     list = [data];
   }
+// PDP (item/get, pdp/get_pc) traz `sold` = acumulado total; listagens
+// trazem `sold` = mês. Realoca antes de gravar: acumulado vai pra
+// historical_sold, nunca pra sold_30_days.
+function isPdpShape(i) {
+  return !!(i.models || i.description || i.attributes || i.item_status);
+}
+function soldFields(i) {
+  var sold = scalar(i.sold, 0), s30 = scalar(i.sold_30_days, 0),
+      hist = scalar(i.historical_sold, 0);
+  if (sold != null && hist != null && sold >= hist * 0.9) {
+    sold = null;                    // sold era o acumulado duplicado
+  } else if (sold != null && hist == null && isPdpShape(i)) {
+    hist = sold; sold = null;       // PDP sem campo explícito
+  }
+  // `sold` aqui já é garantidamente mensal — pode fundir com s30
+  return { sold_30_days: s30 != null ? s30 : sold, historical_sold: hist };
+}
+
   return list.filter((i) => i && (i.itemid || i.item_id)).map((i) => ({
     itemid: i.itemid || i.item_id,
     shopid: i.shopid || i.shop_id,
@@ -183,8 +201,8 @@ function extractForRpc(p) {
     image: i.image,
     price: i.price,
     stock: i.stock,
-    sold_30_days: i.sold,
-    historical_sold: i.historical_sold,
+    sold_30_days: soldFields(i).sold_30_days,
+    historical_sold: soldFields(i).historical_sold,
     rating_star: (i.item_rating || {}).rating_star,
     rating_count: (i.item_rating || {}).rating_count,
     models: i.models
@@ -210,8 +228,8 @@ function mapForRpc(i) {
     image: i.image,
     price: scalar(i.price || i.price_min, 0),
     stock: scalar(i.stock, 0),
-    sold_30_days: scalar(i.sold || i.sold_30_days, 0),
-    historical_sold: scalar(i.historical_sold, 0),
+    sold_30_days: soldFields(i).sold_30_days,
+    historical_sold: soldFields(i).historical_sold,
     rating_star: scalar((i.item_rating || {}).rating_star || i.rating_star, 0),
     rating_count: scalar((i.item_rating || {}).rating_count || i.rating_count, 0),
     models: i.models
