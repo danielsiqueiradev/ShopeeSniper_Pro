@@ -6,15 +6,16 @@
 -- >= R$ 60 mil — impossível dentro do teto de 300×R$120=R$36k). Resultado:
 -- 100% dos itens viravam MONITOR e a limpeza do tracker marcava tudo.
 --
--- Nova régua:
---   OPORTUNIDADE — dentro da faixa da tese + brecha explorável
+-- Nova régua (alinhada ao ⚔️ Plano de Entrada do drawer: só é sinal se
+-- houver brecha explorável — incumbente sólido vira MONITOR):
+--   OPORTUNIDADE — faixa da tese + brecha forte
 --     · sold_30_days entre 30 e 300  (demanda provada, não saturada)
 --     · price entre R$ 15 e R$ 120   (comporta margem e kit)
---     · product_rating < 4.7         (líder tem o que melhorar)
 --     · lucro_unitario_bruto > 5     (sobra algo por venda)
---   BOM SINAL — demanda provada mas brecha mais fraca ou fora da faixa ideal
---     · sold_30_days >= 30, price 15–120, rating < 4.8
---   MONITOR — o resto
+--     · brecha: produto <4.6★ OU chat <70% OU loja <4.7★
+--   BOM SINAL — mesma faixa, brecha mais fraca
+--     · produto <4.8★ OU chat <85% OU loja <4.8★
+--   MONITOR — o resto (inclui incumbentes sólidos com demanda)
 --
 -- Score recalibrado: receita em cheio aos R$ 20k/mês (300 vendas × ~R$67),
 -- não mais R$ 160k. Mesmas colunas → CREATE OR REPLACE é seguro.
@@ -77,16 +78,19 @@ SELECT
     CASE
         WHEN COALESCE(l.sold_30_days, 0) BETWEEN 30 AND 300
          AND l.price BETWEEN 15 AND 120
-         AND COALESCE(l.rating_star, 5) < 4.7
          AND l.price - _ssp_fees(l.price) > 5
+         AND (COALESCE(l.rating_star, 5) < 4.6
+              OR COALESCE(s.response_rate, 100) < 70
+              OR COALESCE(s.rating_star, 5) < 4.7)
             THEN 'OPORTUNIDADE'
-        -- BOM SINAL: mesma faixa da tese, mas brecha mais fraca
-        -- (rating 4.7–4.8 ou lucro apertado). Campeões saturados
-        -- (sold_30_days > 300) caem em MONITOR: volume alto demais
-        -- pro perfil "oferta melhor em nicho moderado"
+        -- BOM SINAL: mesma faixa da tese, mas brecha mais fraca.
+        -- Campeões saturados (>300) e incumbentes sem falha caem em
+        -- MONITOR: demanda sem brecha explorável não é oportunidade
         WHEN COALESCE(l.sold_30_days, 0) BETWEEN 30 AND 300
          AND l.price BETWEEN 15 AND 120
-         AND COALESCE(l.rating_star, 5) < 4.8
+         AND (COALESCE(l.rating_star, 5) < 4.8
+              OR COALESCE(s.response_rate, 100) < 85
+              OR COALESCE(s.rating_star, 5) < 4.8)
             THEN 'BOM SINAL'
         ELSE 'MONITOR'
     END AS sinal
