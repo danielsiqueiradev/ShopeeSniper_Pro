@@ -96,6 +96,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.type === 'SSP_ITEM_STATS') {
+    // último snapshot do item — completa o ⚔️ Plano da PDP com os
+    // campos que o pdp/get_pc não traz (sold_30d, stock, rating)
+    fetchLatestSnapshot(msg.itemid)
+      .then((stats) => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_ITEM_STATS_RESULT', itemid: msg.itemid, stats
+      }))
+      .catch(() => sendToTab(sender.tab && sender.tab.id, {
+        type: 'SSP_ITEM_STATS_RESULT', itemid: msg.itemid, stats: null
+      }));
+    return;
+  }
+
   if (msg.type === 'SSP_OPEN_TABS') {
     // ritual diário do 📌: abre cada PDP em aba de fundo com delay —
     // chrome.tabs.create ignora popup blocker, e o espaçamento deixa a
@@ -317,6 +330,24 @@ async function fetchTrackedStats(ids) {
     ids,
     (row, out) => { if (!out[row.item_id]) out[row.item_id] = row; }
   );
+}
+
+// último snapshot de um item — usado pelo drawer da PDP pra mostrar
+// sold_30d/stock quando o payload da página não traz
+async function fetchLatestSnapshot(itemid) {
+  const c = await cfg();
+  if (!c.supabaseUrl || !c.supabaseKey || !itemid) return null;
+  const r = await fetch(
+    `${c.supabaseUrl}/rest/v1/product_daily_snapshots` +
+    `?item_id=eq.${encodeURIComponent(itemid)}` +
+    `&select=price,sold_30_days,stock,rating_star,historical_sold,snapshot_date` +
+    `&order=snapshot_date.desc&limit=1`,
+    { headers: { 'apikey': c.supabaseKey,
+                 'Authorization': `Bearer ${c.supabaseKey}` } }
+  );
+  if (!r.ok) return null;
+  const rows = await r.json();
+  return rows[0] || null;
 }
 
 // opportunity_score + sinal de cada item trackado (vw_breach_opportunities)

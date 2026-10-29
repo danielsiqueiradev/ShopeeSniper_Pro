@@ -1090,11 +1090,50 @@
       return;
     }
     if (msg && msg.type === 'SSP_DELTA_RESULT') {
-      var el = document.querySelector('.ssp-delta[data-itemid="' + msg.itemid + '"]');
-      if (el) {
+      // atualiza todos os alvos com esse itemid — badge do card E
+      // bloco do drawer (ambos exibem o mesmo delta)
+      document.querySelectorAll(
+        '.ssp-delta[data-itemid="' + msg.itemid + '"]'
+      ).forEach(function (el) {
         var txt = msg.sales != null ? '+' + msg.sales + ' vendas/dia' : 'sem baseline';
         el.innerHTML = '<span>📈 24h: ' + txt + '</span>';
+      });
+      return;
+    }
+    if (msg && msg.type === 'SSP_ITEM_STATS_RESULT') {
+      // último snapshot do banco completa o que a PDP não expõe:
+      // sold_30d, stock — preenche os spans do Plano de Entrada
+      var s = msg.stats;
+      var it = items.get(String(msg.itemid));
+      if (!s) return;
+      if (it) {
+        if (it.sold_30_days == null && s.sold_30_days != null)
+          it.sold_30_days = s.sold_30_days;
+        if (it.stock == null && s.stock != null) it.stock = s.stock;
+        if (it.historical_sold == null && s.historical_sold != null)
+          it.historical_sold = s.historical_sold;
       }
+      var vol = document.getElementById('ssp-pd-vol');
+      var rev = document.getElementById('ssp-pd-rev');
+      var stk = document.getElementById('ssp-pd-stock');
+      var vel = document.getElementById('ssp-pd-vel');
+      var vlf = document.getElementById('ssp-pd-vlife');
+      var price = it ? (it.price || it.price_min || s.price || 0)
+                     : (s.price || 0);
+      var s30 = s.sold_30_days || 0;
+      if (vol && s30) vol.textContent = n(s30);
+      if (rev && s30 && price) rev.textContent = brl(s30 * price);
+      if (stk && s.stock != null) stk.textContent = n(s.stock);
+      if (vel && s30) {
+        var age2 = it && it.age_days;
+        var win2 = age2 != null ? Math.min(30, Math.max(age2, 1)) : 30;
+        vel.textContent = (s30 / win2).toFixed(1);
+      }
+      if (vlf && it && it.age_days && s.historical_sold) {
+        vlf.textContent =
+          (s.historical_sold / Math.max(it.age_days, 1)).toFixed(1);
+      }
+      return;
     }
   });
 
@@ -1181,6 +1220,16 @@
           isTracked(itemid) ? '📌 Trackado' : '📌 Track';
       };
     }
+    // completa o bloco com o que a PDP não expõe: delta 24h + último
+    // snapshot (sold_30d, stock) — mesmo fetch do selo do card
+    safeSend({ type: 'SSP_DELTA', itemid: itemid });
+    safeSend({ type: 'SSP_ITEM_STATS', itemid: itemid });
+    setTimeout(function () {
+      var d = drawer.querySelector('.ssp-delta-pdp');
+      if (d && d.innerText.indexOf('carregando') !== -1) {
+        d.innerHTML = '<span>📈 24h: —</span>';
+      }
+    }, 12000);
     drawer.querySelectorAll('.ssp-media-dl').forEach(function (b) {
       b.onclick = function () {
         safeSend({ type: 'SSP_DOWNLOAD', url: b.dataset.url,
@@ -1371,12 +1420,34 @@
         ' · frete ' + brl(f.fs) + ' · imposto ' + brl(f.tax) +
         (f.ads ? ' · ads ' + brl(f.ads) : '') + ')'
       : '';
+    // mesmo bloco de dados do selo do card — p/ conferir os números
+    // dentro do drawer sem sair da PDP. Campos que o payload da PDP não
+    // traz (sold_30d, stock, idade) chegam async via SSP_ITEM_STATS
+    var age = it.age_days;
+    var win = age != null ? Math.min(30, Math.max(age, 1)) : 30;
+    var hist = it.historical_sold || 0;
+    var vel30 = sold ? (sold / win).toFixed(1) : null;
+    var velLife = age ? (hist / Math.max(age, 1)).toFixed(1) : null;
     var econ = price
       ? '<div class="ssp-grid">' +
         '<span>Sobras/un: <b class="ssp-profit">' + brl(liq) + '</b></span>' +
         '<span>Fornecedor até: <b class="ssp-cmv">' + brl(cmv) + '</b></span>' +
-        '<span>Vol. 30d: <b>' + n(sold) + '</b></span>' +
-        '<span>Receita 30d: <b>' + brl(sold * price) + '</b></span></div>' +
+        '<span>📅 ' + (it.created_date || '—') +
+          (age != null ? ' (' + age + 'd)' : '') + '</span>' +
+        '<span>⭐ ' + (rating != null ? rating.toFixed(1) : '—') +
+          (rcount ? ' (' + n(rcount) + ')' : '') + '</span>' +
+        '<span>📦 <b id="ssp-pd-stock">' +
+          (it.stock != null ? n(it.stock) : '—') + '</b> un.</span>' +
+        '<span>⚡ <b id="ssp-pd-vel">' + (vel30 || '—') + '</b>/d (' +
+          win + 'd) vs <b id="ssp-pd-vlife">' + (velLife || '—') +
+          '</b>/d</span>' +
+        '<span>Vol. 30d: <b id="ssp-pd-vol">' +
+          (sold ? n(sold) : '—') + '</b></span>' +
+        '<span>Receita 30d: <b id="ssp-pd-rev">' +
+          (sold ? brl(sold * price) : '—') + '</b></span>' +
+        '</div>' +
+        '<div class="ssp-row ssp-delta ssp-delta-pdp" data-itemid="' +
+          itemid + '"><span>📈 24h: <i>carregando…</i></span></div>' +
         '<i class="ssp-hint">' + feeTxt + '</i>'
       : '';
     if (price && cmv <= 0) {
