@@ -153,6 +153,8 @@
         <option value="magro">🔍 Dados magros</option>
       </select>
       <label class="muted"><input type="checkbox" id="f-onlybrecha"> só com brecha</label>
+      <button class="tab" id="f-purge" style="border-color:#7a2a2a"
+        title="remove do tracker todo veredito 🔴 Incumbente sólido">🧹 Cortar 🔴</button>
     </div>
     <table id="tbl-tracked"><thead></thead><tbody></tbody></table>
   </section>
@@ -776,6 +778,33 @@
     } catch (e) { err('Erro ao desmarcar: ' + e.message); }
   }
 
+  // faxina: corta do tracker todo 🔴 sólido que ainda não está em
+  // teste/escalando — item avançado no pipeline fica (já tem capital nele)
+  async function purgeSolid() {
+    var kill = [], spared = 0;
+    state.trk.forEach(function (t) {
+      var st = (state.costs[t.item_id] || {}).status;
+      if (verdictOf(itemInfo(t), t).k !== 'solido') return;
+      if (st === 'teste' || st === 'escalando') { spared++; return; }
+      kill.push(t.item_id);
+    });
+    if (!kill.length) { err('Nenhum 🔴 sólido pra cortar — tracker limpo.'); return; }
+    if (!window.confirm('Cortar ' + kill.length + ' itens 🔴 sólidos do tracker?' +
+        (spared ? ' (' + spared + ' poupados: teste/escalando)' : ''))) return;
+    try {
+      for (var i = 0; i < kill.length; i += 60) {
+        await sb('/tracked_items?item_id=in.(' +
+          kill.slice(i, i + 60).join(',') + ')', { method: 'DELETE' });
+      }
+      state.trk = state.trk.filter(function (t) {
+        return kill.indexOf(t.item_id) === -1;
+      });
+      kill.forEach(function (id) { delete state.snaps[id]; });
+      renderKpis(); renderTracked();
+      err('✂️ ' + kill.length + ' incumbentes sólidos removidos do tracker.');
+    } catch (e) { err('Erro na faxina: ' + e.message); }
+  }
+
   // ---------- oportunidades ----------
   async function renderOpps() {
     err('Carregando oportunidades…');
@@ -849,6 +878,7 @@
   ['f-search', 'f-sort', 'f-group', 'f-verd', 'f-onlybrecha'].forEach(function (id) {
     document.getElementById(id).oninput = renderTracked;
   });
+  $('#f-purge').onclick = purgeSolid;
 
   $('#cfg-url').value = S.url;
   $('#cfg-key').value = S.key;
