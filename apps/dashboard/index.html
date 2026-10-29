@@ -170,7 +170,7 @@
         sbIn('/product_daily_snapshots?item_id=in.(IN_LIST)' +
              '&select=item_id,snapshot_date,price,sold_30_days,historical_sold,rating_star,stock' +
              '&order=item_id,snapshot_date.desc&limit=20000', ids, 50),
-        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,catid&limit=5000', ids, 60)
+        sbIn('/monitored_products?item_id=in.(IN_LIST)&select=item_id,name,category_id&limit=5000', ids, 60)
       ]);
       snaps = res[0]; prods = res[1];
     }
@@ -206,7 +206,7 @@
       ? vendidos * latest.price : null;
     var rating = latest.rating_star;
     var name = t.name || (state.prods[t.item_id] || {}).name || '';
-    var catid = (state.prods[t.item_id] || {}).catid;
+    var catid = (state.prods[t.item_id] || {}).category_id;
     // sinal espelha a régua do 💎/view 006
     var brecha = (rating != null && rating < 4.6);
     var quente = delta7 != null && delta7 >= 20;
