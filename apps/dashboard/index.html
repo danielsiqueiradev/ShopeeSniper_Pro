@@ -1030,17 +1030,30 @@
         it.toks.forEach(function (w) {
           if (wOf(w) < 2) return;
           (inv[w] || []).forEach(function (i) {
-            cand[i] = (cand[i] || 0) + wOf(w);
+            cand[i] = (cand[i] || { w: 0, n: 0 });
+            cand[i].w += wOf(w);
+            cand[i].n++;
           });
         });
+        var seen = {};
         var top = Object.keys(cand).map(function (i) {
           var r = sup[i];
           var rW = r.toks.reduce(function (a, w) { return a + wOf(w); }, 0);
-          var m = cand[i];
-          return { r: r, s: m / (itW || 1) * 0.65 +
-                             m / ((itW + rW - m) || 1) * 0.35 };
-        }).filter(function (m) { return m.s >= 0.22; })
-          .sort(function (a, b) { return b.s - a.s; }).slice(0, 3);
+          var m = cand[i].w, n = cand[i].n;
+          // 1 token compartilhado é ruído ("descanso", "aço") — só
+          // pontua cheio com 2+ evidências independentes
+          var mult = n >= 2 ? 1 : 0.35;
+          return { r: r, n: n,
+                   s: (m / (itW || 1) * 0.65 +
+                       m / ((itW + rW - m) || 1) * 0.35) * mult };
+        }).filter(function (m) {
+          // dedup por sku+nome — catálogo costuma ter uma linha por
+          // variação do mesmo produto
+          var key = (m.r.sku || m.r.name);
+          if (m.s < 0.22 || seen[key]) return false;
+          seen[key] = 1;
+          return true;
+        }).sort(function (a, b) { return b.s - a.s; }).slice(0, 3);
         out.push({ t: it.t, info: it.info, top: top });
       }
       $('#cat-prog').textContent =
@@ -1085,6 +1098,8 @@
         var url = x.r.url && /^https?:/i.test(x.r.url) ? x.r.url : null;
         return '<div class="catcand' + (k ? ' dim' : '') + '">' +
           '<b>' + (x.s * 100).toFixed(0) + '%</b> ' +
+          '<span class="muted" title="tokens compartilhados">[' +
+            x.n + 'tk]</span> ' +
           (url
             ? '<a href="' + url + '" target="_blank" rel="noopener">' +
               x.r.name + '</a>'
