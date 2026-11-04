@@ -54,11 +54,27 @@
     return item;
   }
 
+  // EAN do array attributes da Shopee — pdp/get_pc traz "Código de
+  // barras"/GTIN pra várias categorias. Match exato contra catálogo
+  // de fornecedor, a evidência mais forte que existe
+  function enrichEan(node) {
+    if (node.ean || !Array.isArray(node.attributes)) return node;
+    node.attributes.forEach(function (a) {
+      if (node.ean || !a) return;
+      var k = String(a.attribute_name || a.name || '').toLowerCase();
+      if (!/barras|gtin|ean|upc/.test(k)) return;
+      var v = String(a.value || a.raw_value || '').replace(/\D/g, '');
+      if (v.length >= 8 && v.length <= 14) node.ean = v;
+    });
+    return node;
+  }
+
   function enrichItems(node) {
     if (Array.isArray(node)) {
       node.forEach(enrichItems);
     } else if (node && typeof node === 'object') {
       if (node.ctime) enrichCtime(node);
+      enrichEan(node);
       for (var k in node) enrichItems(node[k]);
     }
   }

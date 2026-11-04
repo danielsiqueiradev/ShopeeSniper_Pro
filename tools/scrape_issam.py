@@ -22,8 +22,10 @@ CATS = ['bebe', 'beleza-higiene', 'brinquedos', 'carnaval', 'confeccao',
         'vidros']
 
 RE_PROD = re.compile(
-    r'data-codigo-produto="(\d+)"[^>]*?data-nome="([^"]+)"[^>]*?'
-    r'data-preco="([\d.]+)"[^>]*?data-departamento="([^"]*)"', re.S)
+    r'data-codigo-produto="(\d+)"[^>]*?data-id-produto="?(\d{8,14})"?[^>]*?'
+    r'data-nome="([^"]+)"[^>]*?data-preco="([\d.]+)"[^>]*?'
+    r'data-departamento="([^"]*)"', re.S)
+RE_EAN_URL = re.compile(r'-(\d{12,14})-\d+$')
 RE_URL = re.compile(r'window\.location=&quot;([^&]+)&quot;')
 RE_EMB = re.compile(r'Embalagem:\s*([^<]+)<br>\s*Caixa Com:\s*([^<]+)')
 MAX_PAGE = 80  # trava de segurança
@@ -51,14 +53,17 @@ def parse_page(html):
         m = RE_PROD.search(seg)
         if not m:
             continue
-        code, nome, preco, depto = m.groups()
+        code, ean, nome, preco, depto = m.groups()
         url = RE_URL.search(seg)
+        u = url.group(1).replace('\\/', '/') if url else ''
+        em = RE_EAN_URL.search(u)
         emb = RE_EMB.search(seg)
         rows.append({
             'nome': nome.strip(),
             'sku': code,
+            'ean': ean or (em.group(1) if em else ''),
             'preco': preco if float(preco or 0) > 0 else '',
-            'url': url.group(1).replace('\\/', '/') if url else '',
+            'url': u,
             'departamento': depto.strip(),
             'embalagem': (f'{emb.group(1).strip()} / cx {emb.group(2).strip()}'
                           if emb else ''),
@@ -118,7 +123,7 @@ def main():
 
     with open(a.out, 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.DictWriter(f, delimiter=';',
-                           fieldnames=['nome', 'sku', 'preco', 'url',
+                           fieldnames=['nome', 'sku', 'ean', 'preco', 'url',
                                        'departamento', 'embalagem'])
         w.writeheader()
         w.writerows(products)

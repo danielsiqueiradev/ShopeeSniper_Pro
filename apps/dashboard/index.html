@@ -195,6 +195,7 @@
       <label>nome <select id="cat-col-name"></select></label>
       <label>preço <select id="cat-col-price"></select></label>
       <label>sku/cód <select id="cat-col-sku"></select></label>
+      <label>ean <select id="cat-col-ean"></select></label>
       <label>marca/fornec. <select id="cat-col-extra"></select></label>
       <label>link <select id="cat-col-url"></select></label>
     </div>
@@ -302,7 +303,7 @@
   // ---------- carrega dados ----------
   async function load() {
     err('Carregando…');
-    state.trk = await sb('/tracked_items?select=item_id,shop_id,name,created_at&order=created_at.desc&limit=500');
+    state.trk = await sb('/tracked_items?select=item_id,shop_id,name,ean,created_at&order=created_at.desc&limit=500');
     var ids = state.trk.map(function (t) { return t.item_id; });
     var snaps = [], prods = [], costs = [];
     if (ids.length) {
@@ -929,7 +930,8 @@
     var map = {
       '#cat-col-name': guess(/nome|descri|produto|titulo|title|name|item/i),
       '#cat-col-price': guess(/preco|price|valor|custo|cost(?!\s*e)|tabela/i),
-      '#cat-col-sku': guess(/sku|cod|ref|modelo|id\b|ean|gtin|material/i),
+      '#cat-col-sku': guess(/sku|cod|ref|modelo|id\b|material/i),
+      '#cat-col-ean': guess(/ean|gtin|barras|upc/i),
       '#cat-col-extra': guess(/varia|cor|tamanho|marca|brand|fornec|fabrica|obs|unid/i),
       '#cat-col-url': guess(/url|link|site|href|pagina/i)
     };
@@ -1024,6 +1026,7 @@
     var colN = $('#cat-col-name').value;
     var colP = $('#cat-col-price').value;
     var colS = $('#cat-col-sku').value;
+    var colE = $('#cat-col-ean').value;
     var colX = $('#cat-col-extra').value;
     var colU = $('#cat-col-url').value;
     if (!colN || !CAT.rows) return;
@@ -1034,8 +1037,10 @@
       catNorm(r[colN])
         .concat(colX ? catNorm(r[colX]) : [])
         .forEach(function (w) { toks[w] = 1; });
+      var ean = colE ? String(r[colE] || '').replace(/\D/g, '') : '';
       return { name: r[colN], price: colP ? numBr(r[colP]) : null,
                sku: colS ? String(r[colS]) : '',
+               ean: ean.length >= 8 ? ean : '',
                url: colU ? String(r[colU]) : '',
                toks: Object.keys(toks) };
     }).filter(function (r) { return r.toks.length; });
@@ -1096,11 +1101,22 @@
       return { t: t, info: info, toks: toks, need: need };
     });
 
+    // índice por EAN — match exato é soberano: bate o código de
+    // barras, não importa o quão diferente seja o nome
+    var eanMap = {};
+    sup.forEach(function (r, i) { if (r.ean) eanMap[r.ean] = i; });
+
     var out = [], idx = 0;
     var step = function () {
       var end = Math.min(idx + 30, items.length);
       for (; idx < end; idx++) {
         var it = items[idx];
+        var iean = String(it.t.ean || '').replace(/\D/g, '');
+        if (iean.length >= 8 && eanMap[iean] != null) {
+          out.push({ t: it.t, info: it.info,
+                     top: [{ r: sup[eanMap[iean]], s: 1, n: 0, ean: true }] });
+          continue;
+        }
         var itW = it.toks.reduce(function (a, w) { return a + wOf(w); }, 0);
         var cand = {};
         it.toks.forEach(function (w) {
@@ -1176,9 +1192,11 @@
         var vl = viabLabel(x.r.price, cmv);
         var url = x.r.url && /^https?:/i.test(x.r.url) ? x.r.url : null;
         return '<div class="catcand' + (k ? ' dim' : '') + '">' +
-          '<b>' + (x.s * 100).toFixed(0) + '%</b> ' +
-          '<span class="muted" title="tokens compartilhados">[' +
-            x.n + 'tk]</span> ' +
+          (x.ean
+            ? '<b>🔒 EAN</b> '
+            : '<b>' + (x.s * 100).toFixed(0) + '%</b> ' +
+              '<span class="muted" title="tokens compartilhados">[' +
+                x.n + 'tk]</span> ') +
           (url
             ? '<a href="' + url + '" target="_blank" rel="noopener">' +
               x.r.name + '</a>'

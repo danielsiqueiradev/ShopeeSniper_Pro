@@ -78,7 +78,8 @@
     try {
       chrome.runtime.sendMessage({
         type: 'SSP_TRACK',
-        item: { itemid: id, shopid: it.shopid, name: it.name, tracked: on }
+        item: { itemid: id, shopid: it.shopid, name: it.name,
+                ean: it.ean || null, tracked: on }
       }, function () { void chrome.runtime.lastError; });
     } catch (e) {}
   }
@@ -284,6 +285,13 @@
       if (merged.name && tracked[String(id)] &&
           tracked[String(id)].name !== merged.name) {
         tracked[String(id)].name = merged.name;
+        saveTracked();
+        pushTrack(String(id), true, merged);
+      }
+      // ean aprendido depois do track sobe pro banco — igual ao nome
+      if (merged.ean && tracked[String(id)] &&
+          tracked[String(id)].ean !== merged.ean) {
+        tracked[String(id)].ean = merged.ean;
         saveTracked();
         pushTrack(String(id), true, merged);
       }
@@ -1057,6 +1065,7 @@
         remoteIds[rid] = 1;
         if (!tracked[rid]) {
           tracked[rid] = { name: r.name || '', shopid: r.shop_id,
+                           ean: r.ean || null,
                            at: new Date(r.created_at).getTime() };
         }
       });
@@ -1208,6 +1217,20 @@
       if (hs != null) {
         it.historical_sold = hs;
         queueItem(it);
+      }
+    }
+    // EAN: fallback DOM quando o payload não traz — o bloco
+    // "Especificações" da PDP exibe "Código de barras: 789..."
+    if (it.ean == null) {
+      var et = (document.body.innerText || '')
+        .match(/(?:barras|gtin|ean)\D{0,40}(\d{8,14})/i);
+      if (et) {
+        it.ean = et[1];
+        if (isTracked(itemid)) {
+          tracked[itemid].ean = it.ean;
+          saveTracked();
+          pushTrack(itemid, true, it);
+        }
       }
     }
 

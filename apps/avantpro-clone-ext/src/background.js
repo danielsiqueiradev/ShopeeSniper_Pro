@@ -289,6 +289,7 @@ async function syncTrack(item) {
         item_id: Number(item.itemid),
         shop_id: item.shopid ? Number(item.shopid) : null,
         name: item.name || null,
+        ean: item.ean || null,
         updated_at: new Date().toISOString()
       })
     }).then((r) => {
