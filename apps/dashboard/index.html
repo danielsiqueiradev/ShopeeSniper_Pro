@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <title>ShopeeSniper — Dashboard</title>
 <style>
   :root { --bg:#141417; --panel:#1b1b1f; --panel2:#22222a; --line:#333;
@@ -39,6 +41,11 @@
   a { color:var(--info); text-decoration:none; }
   a:hover { text-decoration:underline; }
   .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .catcand { padding:3px 0; border-bottom:1px dashed #2c2c34; }
+  .catcand.dim { opacity:.75; }
+  .catcand:last-child { border-bottom:none; }
+  .tab.sm { font-size:10px; padding:1px 8px; margin-left:6px; }
+  #cat-map label { display:flex; align-items:center; gap:4px; font-size:12px; }
   .tag { display:inline-block; padding:1px 7px; border-radius:4px;
          font-size:10px; font-weight:700; }
   .tag.brecha { background:#3d1f14; color:#ff9d5c; }
@@ -121,6 +128,7 @@
   <button class="tab on" data-t="tracked">📌 Trackados</button>
   <button class="tab" data-t="opps">💎 Oportunidades</button>
   <button class="tab" data-t="pipe">🚀 Pipeline</button>
+  <button class="tab" data-t="cat">📦 Catálogo</button>
   <button class="tab" data-t="cfg">⚙️ Conexão</button>
   <button class="tab" id="btn-refresh" style="margin-left:auto">↻ Atualizar</button>
 </nav>
@@ -169,6 +177,27 @@
     <p class="muted">Status vem da ficha do item (📋 na lista). Colunas do
       funil de decisão: observando → cotando → teste → escalando | cortado.</p>
     <div class="pipe" id="pipe"></div>
+  </section>
+
+  <section id="sec-cat" hidden>
+    <p class="muted">Sobe o catálogo do fornecedor (CSV ou Excel) — o arquivo
+      é processado <b>no navegador</b>, nada sai do PC. Casa cada trackado
+      com os SKUs do catálogo por tokens ponderados (marca/modelo/número
+      pesam mais) e sinaliza viabilidade vs CMV Teto.</p>
+    <div class="controls">
+      <input type="file" id="cat-file" accept=".csv,.xlsx,.xls,.txt">
+      <button class="tab" id="cat-run" hidden>▶ Rodar match</button>
+      <button class="tab" id="cat-export" hidden>⬇ Export CSV</button>
+      <span class="muted" id="cat-prog"></span>
+    </div>
+    <div class="controls" id="cat-map" hidden>
+      <label>nome <select id="cat-col-name"></select></label>
+      <label>preço <select id="cat-col-price"></select></label>
+      <label>sku/cód <select id="cat-col-sku"></select></label>
+      <label>variação/cor <select id="cat-col-extra"></select></label>
+      <label>link <select id="cat-col-url"></select></label>
+    </div>
+    <table id="tbl-cat"><thead></thead><tbody></tbody></table>
   </section>
 
   <section id="sec-cfg" hidden>
@@ -869,6 +898,288 @@
     }
   }
 
+  // ---------- catálogo do fornecedor ----------
+  var CAT = { rows: null, cols: [], matches: null, name: '' };
+
+  function catNorm(s) {
+    return (s || '').toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+      .filter(function (w) { return w.length > 1 && !STOP[w]; });
+  }
+  function numBr(v) {
+    if (v == null || v === '') return null;
+    var t = String(v).replace(/[^\d.,-]/g, '');
+    if (t.indexOf(',') !== -1 && t.indexOf('.') !== -1)
+      t = t.replace(/\./g, '').replace(',', '.');
+    else t = t.replace(',', '.');
+    var n = parseFloat(t);
+    return isNaN(n) ? null : n;
+  }
+
+  // preenche os selects de mapeamento e tenta adivinhar as colunas
+  function catMapCols() {
+    var cols = CAT.cols;
+    var guess = function (re) {
+      for (var i = 0; i < cols.length; i++)
+        if (re.test(cols[i])) return cols[i];
+      return '';
+    };
+    var map = {
+      '#cat-col-name': guess(/nome|descri|produto|titulo|title|name|item/i),
+      '#cat-col-price': guess(/preco|price|valor|custo|cost|unit/i),
+      '#cat-col-sku': guess(/sku|cod|ref|modelo|id\b|ean|gtin/i),
+      '#cat-col-extra': guess(/varia|cor|tamanho|marca|brand|obs|qtd|unid/i),
+      '#cat-col-url': guess(/url|link|site|href|pagina/i)
+    };
+    Object.keys(map).forEach(function (sel) {
+      $(sel).innerHTML = '<option value="">—</option>' +
+        cols.map(function (c) {
+          return '<option' + (c === map[sel] ? ' selected' : '') +
+            '>' + c + '</option>';
+        }).join('');
+    });
+    $('#cat-map').hidden = false;
+    $('#cat-run').hidden = false;
+  }
+
+  function catFile(f) {
+    if (!f) return;
+    $('#cat-prog').textContent =
+      'lendo ' + f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)…';
+    CAT.name = f.name;
+    var done = function (rows, cols) {
+      CAT.rows = rows; CAT.cols = cols;
+      $('#cat-prog').textContent =
+        nn(rows.length) + ' linhas · ' + cols.length + ' colunas — ' +
+        'confere o mapeamento e roda o match';
+      catMapCols();
+    };
+    if (/\.(csv|txt)$/i.test(f.name)) {
+      Papa.parse(f, {
+        header: true, skipEmptyLines: true,
+        complete: function (res) { done(res.data, res.meta.fields || []); },
+        error: function (e) { $('#cat-prog').textContent = 'erro: ' + e.message; }
+      });
+    } else {
+      f.arrayBuffer().then(function (buf) {
+        var wb = XLSX.read(buf, { type: 'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        done(data, data.length ? Object.keys(data[0]) : []);
+      }).catch(function (e) {
+        $('#cat-prog').textContent = 'erro: ' + e.message;
+      });
+    }
+  }
+
+  // match: índice invertido — cada token de fornecedor aponta pras
+  // linhas que o contêm; peso maior pra token raro/numérico (marca,
+  // modelo, "420"). Compara só quem compartilha token raro.
+  function catRun() {
+    var colN = $('#cat-col-name').value;
+    var colP = $('#cat-col-price').value;
+    var colS = $('#cat-col-sku').value;
+    var colX = $('#cat-col-extra').value;
+    var colU = $('#cat-col-url').value;
+    if (!colN || !CAT.rows) return;
+
+    $('#cat-prog').textContent = 'indexando catálogo…';
+    var sup = CAT.rows.map(function (r) {
+      var toks = {};
+      catNorm(r[colN])
+        .concat(colX ? catNorm(r[colX]) : [])
+        .forEach(function (w) { toks[w] = 1; });
+      return { name: r[colN], price: colP ? numBr(r[colP]) : null,
+               sku: colS ? String(r[colS]) : '',
+               url: colU ? String(r[colU]) : '',
+               toks: Object.keys(toks) };
+    }).filter(function (r) { return r.toks.length; });
+
+    var df = {}, N = sup.length;
+    sup.forEach(function (r) {
+      r.toks.forEach(function (w) { df[w] = (df[w] || 0) + 1; });
+    });
+    var wOf = function (w) {
+      var d = df[w] || 0;
+      if (!d) return 0;
+      if (/\d/.test(w)) return 3;
+      return d <= N * 0.005 ? 3 : d <= N * 0.05 ? 2 : 1;
+    };
+    var inv = {};
+    sup.forEach(function (r, i) {
+      r.toks.forEach(function (w) {
+        if (wOf(w) >= 2) (inv[w] = inv[w] || []).push(i);
+      });
+    });
+    // peso dos tokens do item calculado no df do catálogo
+    var items = state.trk.map(function (t) {
+      var info = itemInfo(t);
+      var itoks = {};
+      catNorm(info.name).forEach(function (w) { itoks[w] = 1; });
+      return { t: t, info: info, toks: Object.keys(itoks) };
+    });
+
+    var out = [], idx = 0;
+    var step = function () {
+      var end = Math.min(idx + 30, items.length);
+      for (; idx < end; idx++) {
+        var it = items[idx];
+        var itW = it.toks.reduce(function (a, w) { return a + wOf(w); }, 0);
+        var cand = {};
+        it.toks.forEach(function (w) {
+          if (wOf(w) < 2) return;
+          (inv[w] || []).forEach(function (i) {
+            cand[i] = (cand[i] || 0) + wOf(w);
+          });
+        });
+        var top = Object.keys(cand).map(function (i) {
+          var r = sup[i];
+          var rW = r.toks.reduce(function (a, w) { return a + wOf(w); }, 0);
+          var m = cand[i];
+          return { r: r, s: m / (itW || 1) * 0.65 +
+                             m / ((itW + rW - m) || 1) * 0.35 };
+        }).filter(function (m) { return m.s >= 0.22; })
+          .sort(function (a, b) { return b.s - a.s; }).slice(0, 3);
+        out.push({ t: it.t, info: it.info, top: top });
+      }
+      $('#cat-prog').textContent =
+        'match ' + Math.min(idx, items.length) + '/' + items.length + '…';
+      if (idx < items.length) return setTimeout(step, 0);
+      CAT.matches = out.sort(function (a, b) {
+        return (b.top[0] ? b.top[0].s : 0) - (a.top[0] ? a.top[0].s : 0);
+      });
+      renderCat();
+    };
+    setTimeout(step, 0);
+  }
+
+  function cmvOf(info) {
+    var p = info.latest.price;
+    return p ? posShopee(p) - 0.2 * p : null;
+  }
+  function viabLabel(m, cmv) {
+    if (m == null || cmv == null) return ['?', ''];
+    if (m <= cmv) return ['✅ viável', 'ok'];
+    if (m <= cmv * 1.15) return ['⚠️ no limite', 'warn'];
+    return ['❌ caro', 'bad'];
+  }
+
+  function renderCat() {
+    var rows = CAT.matches || [];
+    $('#cat-prog').textContent =
+      nn(rows.length) + ' itens · ' +
+      nn(rows.filter(function (r) { return r.top.length; }).length) +
+      ' com match — clica na linha p/ ver os candidatos';
+    $('#cat-export').hidden = !rows.length;
+    $('#tbl-cat thead').innerHTML =
+      '<tr><th>Item trackado</th><th>Preço</th><th class="num">V.30d</th>' +
+      '<th class="num">CMV teto</th><th>Melhor match no catálogo</th>' +
+      '<th class="num">Score</th><th class="num">Preço fornec.</th>' +
+      '<th>Viabilidade</th></tr>';
+    $('#tbl-cat tbody').innerHTML = rows.map(function (r, i) {
+      var cmv = cmvOf(r.info);
+      var m = r.top[0];
+      var sub = r.top.map(function (x, k) {
+        var vl = viabLabel(x.r.price, cmv);
+        var url = x.r.url && /^https?:/i.test(x.r.url) ? x.r.url : null;
+        return '<div class="catcand' + (k ? ' dim' : '') + '">' +
+          '<b>' + (x.s * 100).toFixed(0) + '%</b> ' +
+          (url
+            ? '<a href="' + url + '" target="_blank" rel="noopener">' +
+              x.r.name + '</a>'
+            : x.r.name) +
+          (x.r.sku ? ' <span class="muted">[' + x.r.sku + ']</span>' : '') +
+          ' — <b>' + brl(x.r.price) + '</b>' +
+          ' <span class="tag ' + vl[1] + '">' + vl[0] + '</span>' +
+          (x.r.price != null
+            ? ' <button class="tab sm cat-use" data-i="' + i +
+              '" data-k="' + k + '">usar custo</button>'
+            : '') +
+          '</div>';
+      }).join('');
+      return '<tr class="catrow" data-i="' + i + '">' +
+        '<td><a href="' + link(r.t) + '" target="_blank" rel="noopener">' +
+          (r.info.name || r.t.item_id) + '</a>' +
+          '<br><span class="muted">' + r.t.item_id + '</span></td>' +
+        '<td>' + brl(r.info.latest.price) + '</td>' +
+        '<td class="num">' + nn(r.info.vendidos) + '</td>' +
+        '<td class="num">' + brl(cmv) + '</td>' +
+        '<td colspan="' + (m ? 1 : 4) + '">' +
+          (m ? sub : '<span class="muted">sem candidato</span>') + '</td>' +
+        (m
+          ? '<td class="num">' + (m.s * 100).toFixed(0) + '%</td>' +
+            '<td class="num">' + brl(m.r.price) + '</td>' +
+            '<td><span class="tag ' +
+              viabLabel(m.r.price, cmv)[1] + '">' +
+              viabLabel(m.r.price, cmv)[0] + '</span></td>'
+          : '') +
+        '</tr>';
+    }).join('');
+
+    // "usar custo": grava o fornecedor no item_costs — fecha o pipeline
+    document.querySelectorAll('.cat-use').forEach(function (b) {
+      b.onclick = function (ev) {
+        ev.stopPropagation();
+        var r = CAT.matches[+b.dataset.i];
+        var x = r.top[+b.dataset.k];
+        var prev = state.costs[r.t.item_id] || {};
+        var body = {
+          item_id: r.t.item_id,
+          unit_cost: x.r.price,
+          supplier_url: x.r.url || null,
+          status: prev.status && prev.status !== 'observando'
+            ? prev.status : 'cotando',
+          notes: 'catálogo: ' + x.r.name +
+                 (x.r.sku ? ' [' + x.r.sku + ']' : ''),
+          updated_at: new Date().toISOString()
+        };
+        sb('/item_costs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json',
+                     'Prefer': 'resolution=merge-duplicates' },
+          body: JSON.stringify(body)
+        }).then(function () {
+          state.costs[r.t.item_id] = Object.assign({}, prev, body);
+          b.textContent = '✔ cotando';
+        }).catch(function (e) {
+          err('erro ao salvar custo: ' + e.message);
+        });
+      };
+    });
+  }
+
+  function catExport() {
+    var rows = CAT.matches || [];
+    var head = 'item_id;item;preco_shopee;cmv_teto;score;fornecedor;sku;' +
+               'preco_fornecedor;viavel;link\n';
+    var body = rows.map(function (r) {
+      var cmv = cmvOf(r.info);
+      if (!r.top.length)
+        return [r.t.item_id, r.info.name, r.info.latest.price, cmv,
+                '', '', '', '', 'sem match', '']
+          .map(csvCell).join(';') + '\n';
+      return r.top.map(function (x) {
+        return [r.t.item_id, r.info.name, r.info.latest.price, cmv,
+                (x.s * 100).toFixed(0) + '%', x.r.name, x.r.sku,
+                x.r.price, viabLabel(x.r.price, cmv)[0], x.r.url]
+          .map(csvCell).join(';') + '\n';
+      }).join('');
+    }).join('');
+    var blob = new Blob(['﻿' + head + body],
+                        { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'catalogo_match_' +
+      new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  function csvCell(v) {
+    var t = v == null ? '' : String(v);
+    return /[;"\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  }
+
   // ---------- UI ----------
   document.querySelectorAll('.tab[data-t]').forEach(function (b) {
     b.onclick = function () {
@@ -880,6 +1191,7 @@
       $('#sec-tracked').hidden = state.view !== 'tracked';
       $('#sec-opps').hidden = state.view !== 'opps';
       $('#sec-pipe').hidden = state.view !== 'pipe';
+      $('#sec-cat').hidden = state.view !== 'cat';
       $('#sec-cfg').hidden = state.view !== 'cfg';
       if (state.view === 'opps') renderOpps();
       if (state.view === 'pipe') renderPipeline();
@@ -905,6 +1217,11 @@
     document.getElementById(id).oninput = renderTracked;
   });
   $('#f-purge').onclick = purgeSolid;
+  $('#cat-file').onchange = function (ev) {
+    catFile(ev.target.files && ev.target.files[0]);
+  };
+  $('#cat-run').onclick = catRun;
+  $('#cat-export').onclick = catExport;
 
   $('#cfg-url').value = S.url;
   $('#cfg-key').value = S.key;
