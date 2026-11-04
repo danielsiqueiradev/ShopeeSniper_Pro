@@ -570,6 +570,9 @@
       // SSP_TRACK_STATS_RESULT e re-renderiza a lista
       safeSend({ type: 'SSP_TRACK_STATS',
                  itemids: Object.keys(tracked) });
+      // re-sincroniza ao abrir — deleções feitas no dashboard/outro PC
+      // propagam pra cá sem precisar recarregar a página
+      safeSend({ type: 'SSP_TRACK_LIST' });
     };
     bar.querySelector('#ssp-cfg').onclick = function () {
       var p = document.getElementById('ssp-cfgpanel');
