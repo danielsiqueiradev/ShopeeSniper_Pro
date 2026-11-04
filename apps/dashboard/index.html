@@ -1040,13 +1040,30 @@
                toks: Object.keys(toks) };
     }).filter(function (r) { return r.toks.length; });
 
+    // atributos genéricos dizem feature, não produto — "musical",
+    // "led", "som" aparecem em milhares de itens do catálogo. Peso 1
+    // e fora do índice: não geram candidato nem pontuam evidência
+    var ATTR = { luz:1, som:1, led:1, musical:1, infantil:1, brinquedo:1,
+      kit:1, jogo:1, jogos:1, novidade:1, sortido:1, sortida:1, cores:1,
+      colorido:1, colorida:1, eletrico:1, eletrica:1, recarregavel:1,
+      pilha:1, pilhas:1, bateria:1, grande:1, pequeno:1, pequena:1,
+      cm:1, ml:1, ref:1, promo:1, oferta:1, envio:1, imediato:1,
+      pronta:1, entrega:1, atacado:1, varejo:1, un:1, unid:1, pcs:1,
+      pecas:1, cx:1, emb:1, embalagem:1, novo:1, nova:1, grosso:1,
+      grossa:1, fino:1, fina:1, popular:1, luxo:1, casal:1, solteiro:1,
+      queen:1, king:1, microfibra:1, com:1, para:1, tipo:1, modelo:1,
+      // materiais também são feature, não produto
+      aco:1, inox:1, silicone:1, glitter:1, vidro:1, plastico:1,
+      aluminio:1, ceramica:1, porcelana:1, madeira:1,
+      bambu:1, metal:1, resina:1, tecido:1, renda:1, veludo:1,
+      prova:1, agua:1, dourado:1, prata:1, original:1 };
     var df = {}, N = sup.length;
     sup.forEach(function (r) {
       r.toks.forEach(function (w) { df[w] = (df[w] || 0) + 1; });
     });
     var wOf = function (w) {
       var d = df[w] || 0;
-      if (!d) return 0;
+      if (!d || ATTR[w]) return d ? 1 : 0;
       if (/\d/.test(w)) return 3;
       return d <= N * 0.005 ? 3 : d <= N * 0.05 ? 2 : 1;
     };
@@ -1061,7 +1078,22 @@
       var info = itemInfo(t);
       var itoks = {};
       catNorm(info.name).forEach(function (w) { itoks[w] = 1; });
-      return { t: t, info: info, toks: Object.keys(itoks) };
+      var toks = Object.keys(itoks);
+      // token-chave: o PRIMEIRO token significativo do título é o
+      // tipo do produto ("Relógio", "Pelúcia", "Cobertor" — títulos
+      // de marketplace começam pelo produto). Sem ele no catálogo,
+      // cai pro mais raro. Match sem token-chave = produto diferente
+      var need = catNorm(info.name).filter(function (w) {
+          return !ATTR[w] && wOf(w) >= 2;
+        })[0];
+      if (!need) {
+        need = toks.filter(function (w) {
+            return wOf(w) === 3 && !ATTR[w];
+          }).sort(function (a, b) {
+            return (df[a] || 1e9) - (df[b] || 1e9);
+          })[0] || null;
+      }
+      return { t: t, info: info, toks: toks, need: need };
     });
 
     var out = [], idx = 0;
@@ -1087,6 +1119,9 @@
           // 1 token compartilhado é ruído ("descanso", "aço") — só
           // pontua cheio com 2+ evidências independentes
           var mult = n >= 2 ? 1 : 0.35;
+          // o token-chave do item precisa estar no candidato — sem
+          // ele, "patinho musical" casaria com "bolha musical"
+          if (it.need && r.toks.indexOf(it.need) === -1) mult *= 0.12;
           return { r: r, n: n,
                    s: (m / (itW || 1) * 0.65 +
                        m / ((itW + rW - m) || 1) * 0.35) * mult };
