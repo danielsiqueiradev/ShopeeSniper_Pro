@@ -191,10 +191,11 @@
       <span class="muted" id="cat-prog"></span>
     </div>
     <div class="controls" id="cat-map" hidden>
+      <label>aba <select id="cat-sheet"></select></label>
       <label>nome <select id="cat-col-name"></select></label>
       <label>preço <select id="cat-col-price"></select></label>
       <label>sku/cód <select id="cat-col-sku"></select></label>
-      <label>variação/cor <select id="cat-col-extra"></select></label>
+      <label>marca/fornec. <select id="cat-col-extra"></select></label>
       <label>link <select id="cat-col-url"></select></label>
     </div>
     <table id="tbl-cat"><thead></thead><tbody></tbody></table>
@@ -927,9 +928,9 @@
     };
     var map = {
       '#cat-col-name': guess(/nome|descri|produto|titulo|title|name|item/i),
-      '#cat-col-price': guess(/preco|price|valor|custo|cost|unit/i),
-      '#cat-col-sku': guess(/sku|cod|ref|modelo|id\b|ean|gtin/i),
-      '#cat-col-extra': guess(/varia|cor|tamanho|marca|brand|obs|qtd|unid/i),
+      '#cat-col-price': guess(/preco|price|valor|custo|cost(?!\s*e)|tabela/i),
+      '#cat-col-sku': guess(/sku|cod|ref|modelo|id\b|ean|gtin|material/i),
+      '#cat-col-extra': guess(/varia|cor|tamanho|marca|brand|fornec|fabrica|obs|unid/i),
       '#cat-col-url': guess(/url|link|site|href|pagina/i)
     };
     Object.keys(map).forEach(function (sel) {
@@ -963,14 +964,57 @@
       });
     } else {
       f.arrayBuffer().then(function (buf) {
-        var wb = XLSX.read(buf, { type: 'array' });
-        var ws = wb.Sheets[wb.SheetNames[0]];
-        var data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        done(data, data.length ? Object.keys(data[0]) : []);
+        CAT.wb = XLSX.read(buf, { type: 'array' });
+        var sel = $('#cat-sheet');
+        sel.innerHTML = CAT.wb.SheetNames.map(function (n) {
+          return '<option>' + n + '</option>';
+        }).join('');
+        sel.onchange = function () { catSheet(sel.value); };
+        // aba inicial: a mais populada — cadastros grandes valem mais
+        // que abas auxiliares (ICMS, NCM, UFs)
+        var best = CAT.wb.SheetNames[0], bestN = -1;
+        CAT.wb.SheetNames.forEach(function (n) {
+          var len = XLSX.utils
+            .sheet_to_json(CAT.wb.Sheets[n], { header: 1 }).length;
+          if (len > bestN) { bestN = len; best = n; }
+        });
+        sel.value = best;
+        catSheet(best);
       }).catch(function (e) {
         $('#cat-prog').textContent = 'erro: ' + e.message;
       });
     }
+  }
+
+  // uma aba da planilha → linhas objetos; a linha de cabeçalho é
+  // detectada (cadastros jogam header na linha 5+, abaixo de títulos)
+  function catSheet(name) {
+    var grid = XLSX.utils.sheet_to_json(
+      CAT.wb.Sheets[name], { header: 1, defval: '' });
+    var hIdx = 0, hScore = -1;
+    for (var i = 0; i < Math.min(8, grid.length); i++) {
+      var sc = grid[i].filter(function (c) {
+        return typeof c === 'string' && c.length > 1;
+      }).length;
+      if (sc > hScore) { hScore = sc; hIdx = i; }
+    }
+    var seen = {};
+    var cols = grid[hIdx].map(function (c, i) {
+      var k = String(c || 'col_' + i).trim();
+      return seen[k] ? k + '_' + (++seen[k]) : (seen[k] = 1, k);
+    });
+    var rows = grid.slice(hIdx + 1).map(function (r) {
+      var o = {};
+      cols.forEach(function (c, i) { o[c] = r[i] != null ? r[i] : ''; });
+      return o;
+    }).filter(function (o) {
+      return cols.some(function (c) { return o[c] !== ''; });
+    });
+    CAT.rows = rows; CAT.cols = cols;
+    $('#cat-prog').textContent =
+      nn(rows.length) + ' linhas · ' + cols.length + ' colunas (' + name +
+      ') — confere o mapeamento e roda o match';
+    catMapCols();
   }
 
   // match: índice invertido — cada token de fornecedor aponta pras
