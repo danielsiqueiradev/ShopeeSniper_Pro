@@ -164,6 +164,7 @@
       <label class="muted"><input type="checkbox" id="f-onlybrecha"> só com brecha</label>
       <button class="tab" id="f-purge" style="border-color:#7a2a2a"
         title="remove do tracker todo veredito 🔴 Incumbente sólido">🧹 Cortar 🔴</button>
+      <label class="muted"><input type="checkbox" id="f-novar"> só não varridos hoje</label>
       <span class="muted">|</span>
       <button class="tab" id="f-sweep">🔁 Varrir <span id="sweep-n">0</span></button>
       <button class="tab" id="f-sweep-all">🔁 Todos</button>
@@ -576,6 +577,8 @@
     }).filter(function (r) {
       if (verdF && r.vd.k !== verdF) return false;
       if (onlyBrecha && !r.i.brecha) return false;
+      if ($('#f-novar').checked && state.swept[r.t.item_id] === todayStr())
+        return false;
       if (!q) return true;
       return (r.i.name || '').toLowerCase().indexOf(q) !== -1 ||
              String(r.t.item_id).indexOf(q) !== -1;
@@ -648,7 +651,9 @@
         }
       }
       var st = r.i.latest;
-      var flags = (r.i.ip ? ' <span class="tag ip">⚠️ IP</span>' : '') +
+      var flags = (state.swept[r.t.item_id] === todayStr()
+                    ? ' <span class="tag quente">🔁 varrido</span>' : '') +
+                  (r.i.ip ? ' <span class="tag ip">⚠️ IP</span>' : '') +
                   (r.i.seas ? ' <span class="tag seas">🗓 sazonal</span>' : '') +
                   (r.i.priceDrop != null && r.i.priceDrop < -10
                     ? ' <span class="tag alert">💸 preço -' + Math.abs(r.i.priceDrop).toFixed(0) + '%</span>' : '') +
@@ -1366,6 +1371,21 @@
   // get_pc de cada uma e gera o snapshot do dia. Sem popup-blocker
   // (1 janela) e sem limite de 20 do painel da extensão.
   state.sel = state.sel || {};
+  // registro diário: item_id → data do último varrimento (localStorage)
+  try {
+    state.swept = JSON.parse(localStorage.ssp_swept || '{}');
+  } catch (e) { state.swept = {}; }
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
+      '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function markSwept(ids) {
+    ids.forEach(function (id) { state.swept[id] = todayStr(); });
+    try { localStorage.ssp_swept = JSON.stringify(state.swept); }
+    catch (e) {}
+    renderTracked();
+  }
   function selIds() {
     return Object.keys(state.sel)
       .filter(function (k) { return state.sel[k]; });
@@ -1377,26 +1397,34 @@
       : state.trk.map(function (t) { return String(t.item_id); });
     return state.trk.filter(function (t) {
       return ids.indexOf(String(t.item_id)) !== -1 && t.shop_id;
-    }).map(link);
+    }).map(function (t) { return t.item_id; });
   }
   // ID da extensão (manifest key fixa → mesmo ID em qualquer PC)
   var EXT_ID = 'klnffmifdanfmekolbplcbffkenfcood';
-  function sweepStart(urls) {
+  function sweepStart(ids) {
     if (sweepTimer) { $('#sweep-prog').textContent = 'já varrendo…'; return; }
-    if (!urls.length) {
+    if (!ids.length) {
       $('#sweep-prog').textContent = 'nada selecionado';
       return;
     }
     // preferência: extensão varre no service worker — funciona com o
     // navegador em 2º plano. Sem ela, fallback: uma aba ciclando aqui
+    var urls = ids.map(function (id) {
+      var t = state.trk.filter(function (x) {
+        return String(x.item_id) === String(id);
+      })[0];
+      return t ? link(t) : null;
+    }).filter(Boolean);
     try {
       if (chrome && chrome.runtime && chrome.runtime.sendMessage) {
         chrome.runtime.sendMessage(EXT_ID,
           { type: 'SSP_SWEEP', urls: urls },
           function (res) {
             if (chrome.runtime.lastError || !res || !res.ok) {
+              markSwept(ids);
               sweepWinCycle(urls);
             } else {
+              markSwept(ids);
               $('#sweep-prog').textContent =
                 '✔ ' + res.queued + ' PDPs na fila da extensão — ' +
                 'pode minimizar, varre em background';
@@ -1405,6 +1433,7 @@
         return;
       }
     } catch (e) {}
+    markSwept(ids);
     sweepWinCycle(urls);
   }
   function sweepWinCycle(urls) {
@@ -1463,6 +1492,7 @@
     document.getElementById(id).oninput = renderTracked;
   });
   $('#f-purge').onclick = purgeSolid;
+  $('#f-novar').onchange = renderTracked;
   $('#f-sweep').onclick = function () { sweepStart(sweepUrlsOf(true)); };
   $('#f-sweep-all').onclick = function () { sweepStart(sweepUrlsOf(false)); };
   $('#cat-file').onchange = function (ev) {
