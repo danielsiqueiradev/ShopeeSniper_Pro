@@ -147,6 +147,7 @@
         <option value="recente">Ordenar: track recente</option>
       </select>
       <select id="f-group">
+        <option value="produto">Agrupar: produto</option>
         <option value="familia">Agrupar: família</option>
         <option value="verd">Agrupar: veredito</option>
         <option value="sinal">Agrupar: sinal</option>
@@ -502,6 +503,34 @@
     return fam;
   }
 
+  // cluster por produto: primeiro par de tokens significativos do
+  // título ("almofada natalina", "squishy taba") — responde "quanto
+  // o MESMO item vende no nicho" e "em quantos líderes há brecha"
+  var ATTR2 = { kit:1, luz:1, som:1, led:1, musical:1, infantil:1,
+    jogo:1, cores:1, sortido:1, sortida:1, novo:1, nova:1, orig:1,
+    original:1, promo:1, envio:1, imediato:1, atacado:1, com:1,
+    para:1, tipo:1, modelo:1, un:1, unid:1, pcs:1, pecas:1, cx:1 };
+  function buildProductClusters() {
+    var label = {}, stats = {};
+    state.trk.forEach(function (t) {
+      var i = itemInfo(t);
+      var toks = ((i.name || '') + '').toLowerCase()
+        .replace(/[^a-zà-ú0-9 ]/g, ' ').split(/\s+/)
+        .filter(function (w) {
+          return w.length > 1 && !STOP[w] && !ATTR2[w];
+        });
+      var key = toks.slice(0, 2).join(' ') || (toks[0] || 'outros');
+      var s = stats[key] = stats[key] ||
+        { n: 0, vol: 0, rec: 0, br: 0 };
+      s.n++;
+      s.vol += i.vendidos || 0;
+      s.rec += i.receita || 0;
+      if (i.brecha) s.br++;
+      label[t.item_id] = key;
+    });
+    return { label: label, stats: stats };
+  }
+
   function renderKpis() {
     var infos = state.trk.map(itemInfo);
     var vol = 0, rev = 0, nb = 0, nq = 0, lastSnap = null;
@@ -553,6 +582,7 @@
     var body = '';
     var lastGroup = null;
     var fams = group === 'familia' ? buildFamilies() : null;
+    var clus = group === 'produto' ? buildProductClusters() : null;
     var famStats = {};
     if (fams) {
       // stats por família: volume, receita e concentração top-3 —
@@ -579,15 +609,31 @@
         return d || metaOf(b.i)[sort] - metaOf(a.i)[sort];
       });
     }
+    if (clus) {
+      rows.sort(function (a, b) {
+        var d = (clus.stats[clus.label[b.t.item_id]].vol || 0) -
+                (clus.stats[clus.label[a.t.item_id]].vol || 0);
+        return d || metaOf(b.i)[sort] - metaOf(a.i)[sort];
+      });
+    }
     rows.forEach(function (r) {
       if (group !== 'none') {
         var g = fams ? fams[r.t.item_id]
+          : clus ? clus.label[r.t.item_id]
           : group === 'verd' ? r.vd.v
           : group === 'catid' ? 'Categoria ' + (r.i.catid || '?')
           : r.i.sinal;
         if (g !== lastGroup) {
           var fs = fams && famStats[g];
+          var cs = clus && clus.stats[g];
           body += '<tr class="grouphead"><td colspan="11">' + g +
+            (cs ? ' <span class="muted" style="font-weight:400">' +
+                  '· ' + cs.n + ' item(ns) · ' + nn(cs.vol) +
+                  ' vendidos 30d · ' + brl(cs.rec) +
+                  ' · <span class="tag ' +
+                    (cs.br ? 'brecha' : 'monitor') + '">' +
+                    'brecha em ' + cs.br + '/' + cs.n + '</span></span>'
+                : '') +
             (fs ? ' <span class="muted" style="font-weight:400">' +
                   '· ' + nn(fs.vol) + ' vendidos · ' + brl(fs.rec) +
                   ' · top-3 ' + fs.top3 + '% receita' +
