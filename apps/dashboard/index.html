@@ -181,7 +181,7 @@
       <select id="o-sinal">
         <option value="OPORTUNIDADE" selected>🟢 OPORTUNIDADE — espaço pra entrar</option>
         <option value="BOM SINAL">🟡 BOM SINAL — dá pra brigar</option>
-        <option value="">Veredito: todos</option>
+        <option value="">Veredito: ambos</option>
       </select>
       <select id="o-sort">
         <option value="score">Ordenar: score</option>
@@ -969,7 +969,10 @@
     err('Carregando oportunidades…');
     try {
       if (!state.oppsRows) {
+        // só os sinais bons — MONITOR = incumbente, não é oportunidade
+        // e ficava poluindo a aba com os fantasmas sem nome
         state.oppsRows = await sb('/vw_breach_opportunities?select=*' +
+          '&sinal=in.(OPORTUNIDADE,BOM%20SINAL)' +
           '&order=opportunity_score.desc&limit=500');
       }
       var q = ($('#o-search').value || '').toLowerCase();
