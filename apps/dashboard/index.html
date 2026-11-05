@@ -1047,15 +1047,37 @@
           '<td><span class="tag ' +
             (sinal === 'OPORTUNIDADE' ? 'brecha'
             : sinal === 'BOM SINAL' ? 'bom' : 'monitor') + '">' + sinal + '</span></td>' +
+          '<td><button class="untrk otrack" data-id="' + r.item_id +
+            '" data-shop="' + (r.shop_id || '') + '" data-name="' +
+            (r.name || '').replace(/"/g, '') +
+            '" title="adicionar ao tracker">📌</button></td>' +
         '</tr>';
       }
       $('#tbl-opps thead').innerHTML =
         '<tr><th>Produto</th><th class="num">Score</th><th class="num">Preço</th>' +
         '<th class="num">30d</th><th class="num">7d real</th><th class="num">Receita</th>' +
         '<th class="num">Lucro/un</th><th class="num">CMV teto</th><th class="num">Rating</th>' +
-        '<th>Por quê</th><th>Sinal</th></tr>';
+        '<th>Por quê</th><th>Sinal</th><th></th></tr>';
       $('#tbl-opps tbody').innerHTML = body ||
-        '<tr><td colspan="11" class="muted">view vazia — rode a migration 006</td></tr>';
+        '<tr><td colspan="12" class="muted">view vazia — rode a migration 006</td></tr>';
+      document.querySelectorAll('#tbl-opps .otrack').forEach(function (b) {
+        b.onclick = async function () {
+          b.disabled = true; b.textContent = '…';
+          try {
+            await sb('/tracked_items', {
+              method: 'POST',
+              headers: { 'Prefer': 'resolution=merge-duplicates' },
+              body: JSON.stringify({
+                item_id: Number(b.dataset.id),
+                shop_id: Number(b.dataset.shop) || null,
+                name: b.dataset.name || null
+              })
+            });
+            b.textContent = '📌';
+            b.style.borderColor = '#3a5';
+          } catch (e) { b.textContent = '⚠️'; b.disabled = false; }
+        };
+      });
       err('');
     } catch (e) {
       err('View não encontrada ou erro: ' + e.message +
