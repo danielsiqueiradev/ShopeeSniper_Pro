@@ -1379,12 +1379,35 @@
       return ids.indexOf(String(t.item_id)) !== -1 && t.shop_id;
     }).map(link);
   }
+  // ID da extensão (manifest key fixa → mesmo ID em qualquer PC)
+  var EXT_ID = 'klnffmifdanfmekolbplcbffkenfcood';
   function sweepStart(urls) {
     if (sweepTimer) { $('#sweep-prog').textContent = 'já varrendo…'; return; }
     if (!urls.length) {
       $('#sweep-prog').textContent = 'nada selecionado';
       return;
     }
+    // preferência: extensão varre no service worker — funciona com o
+    // navegador em 2º plano. Sem ela, fallback: uma aba ciclando aqui
+    try {
+      if (chrome && chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage(EXT_ID,
+          { type: 'SSP_SWEEP', urls: urls },
+          function (res) {
+            if (chrome.runtime.lastError || !res || !res.ok) {
+              sweepWinCycle(urls);
+            } else {
+              $('#sweep-prog').textContent =
+                '✔ ' + res.queued + ' PDPs na fila da extensão — ' +
+                'pode minimizar, varre em background';
+            }
+          });
+        return;
+      }
+    } catch (e) {}
+    sweepWinCycle(urls);
+  }
+  function sweepWinCycle(urls) {
     sweepQ = urls; sweepIdx = 0;
     sweepWin = window.open(sweepQ[0], 'ssp_sweep');
     $('#sweep-prog').textContent = 'varrendo 1/' + sweepQ.length + '…';

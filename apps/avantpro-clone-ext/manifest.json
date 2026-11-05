@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "ShopeeSniper Pro — Market Intelligence",
   "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3746u4v5UFUbgJtDW3/zzTpBXXqPhOOICBLvhH7y0eGhdafarDlgNtHfyWp4MrOPPUpfI8+cqvc6mxBBrONPUdJEGptATTKXbUIJgK63ZThpX3OVzhlipbDSwh0I7aSJQNEd2GxFSv4rfcetD3+dgFLz4QMAIpOv80HNyRuX2Rv8Lo7IeDl+642hIXa6SkZtGV5gttNiZAdj6RSfd//pBuT0TJgcwNiNf8Ga7JYvuIKDCHBjFc1G9vNvkEb9ycLhnFz3As4KpEDoljAzVJXcUb5U+dbhKqczgKkc6mY2jke194JCcLjNbWbDr2zw/sbp4mlHTh75pV7xwH56BJXwQwIDAQAB",
   "description": "Inteligência de mercado Shopee BR: interceptor passivo + overlay analítico (Avantpro-style) + unit economics reverso.",
-  "permissions": ["storage", "downloads"],
+  "externally_connectable": {
+    "matches": ["https://danielsiqueiradev.github.io/*", "http://localhost/*"]
+  },
+  "permissions": ["storage", "downloads", "tabs"],
   "host_permissions": [
     "https://shopee.com.br/*",
     "https://*.shopee.com.br/*",

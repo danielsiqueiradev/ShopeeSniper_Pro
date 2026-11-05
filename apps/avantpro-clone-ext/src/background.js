@@ -126,6 +126,46 @@ function sendToTab(tabId, message) {
   if (tabId) chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
+// ---- varredura em background: o dashboard manda a fila de PDPs e o
+// SW dirige UMA aba inativa pelas URLs — roda com o navegador todo em
+// segundo plano, sem depender de página visível aberta
+var sweep = { urls: [], tabId: null, timer: null };
+
+function sweepStep() {
+  var next = sweep.urls.shift();
+  if (next == null || sweep.tabId == null) {
+    if (sweep.tabId != null) {
+      chrome.tabs.remove(sweep.tabId).catch(() => {});
+    }
+    sweep = { urls: [], tabId: null, timer: null };
+    return;
+  }
+  chrome.tabs.update(sweep.tabId, { url: next }).catch(() => {
+    sweep.tabId = null; sweepStep();
+  });
+  // ~8s pra get_pc carregar antes de navegar de novo — gentle c/ anti-bot
+  sweep.timer = setTimeout(sweepStep, 8000);
+}
+
+async function sweepStart(urls) {
+  if (sweep.tabId != null || !urls.length) return sweep.urls.length;
+  sweep.urls = urls.slice();
+  const tab = await chrome.tabs.create({ url: sweep.urls.shift(), active: false });
+  sweep.tabId = tab.id;
+  sweep.timer = setTimeout(sweepStep, 8000);
+  return urls.length;
+}
+
+// mensagem externa: só o dashboard (GitHub Pages / localhost) chama
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'SSP_SWEEP' && Array.isArray(msg.urls)) {
+    sweepStart(msg.urls.filter((u) => /shopee\.com\.br/.test(u)).slice(0, 100))
+      .then((n) => sendResponse({ ok: true, queued: n }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+});
+
 // backend FastAPI é opcional (Supabase direto basta). Quando offline,
 // pausa 60s entre sondas — evita spam de "Failed to fetch" na Network
 let backendDownUntil = 0;
