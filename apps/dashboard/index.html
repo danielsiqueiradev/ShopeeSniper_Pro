@@ -196,6 +196,7 @@
         <option value="sinal">Agrupar: sinal</option>
         <option value="none">Sem grupo</option>
       </select>
+      <label class="muted"><input type="checkbox" id="o-noname"> mostrar sem nome</label>
     </div>
     <table id="tbl-opps"><thead></thead><tbody></tbody></table>
   </section>
@@ -979,6 +980,9 @@
                    receita: 'receita_30d', rating: 'product_rating',
                    delta7: 'vendas_ultimos_7d' };
       var rows = state.oppsRows.filter(function (r) {
+        // item sem nome não é estudável — escondido por padrão até a
+        // PDP ser visitada e o nome ser preenchido no banco
+        if (!$('#o-noname').checked && !r.name) return false;
         if (sF && (r.sinal || 'MONITOR') !== sF) return false;
         if (!q) return true;
         return (r.name || '').toLowerCase().indexOf(q) !== -1 ||
@@ -1578,9 +1582,10 @@
   });
   $('#f-purge').onclick = purgeSolid;
   $('#f-novar').onchange = renderTracked;
-  ['o-search', 'o-sinal', 'o-sort', 'o-group'].forEach(function (id) {
-    $('#' + id).oninput = $('#' + id).onchange = renderOpps;
-  });
+  ['o-search', 'o-sinal', 'o-sort', 'o-group', 'o-noname']
+    .forEach(function (id) {
+      $('#' + id).oninput = $('#' + id).onchange = renderOpps;
+    });
   $('#f-sweep').onclick = function () { sweepStart(sweepUrlsOf(true)); };
   $('#f-sweep-all').onclick = function () { sweepStart(sweepUrlsOf(false)); };
   $('#cat-file').onchange = function (ev) {
