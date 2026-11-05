@@ -176,6 +176,27 @@
   <section id="sec-opps" hidden>
     <p class="muted">vw_breach_opportunities — demanda 30–300/mês, R$15–120,
       com brecha explorável = OPORTUNIDADE.</p>
+    <div class="controls">
+      <input id="o-search" placeholder="buscar nome / item_id">
+      <select id="o-sinal">
+        <option value="">Sinal: todos</option>
+        <option value="OPORTUNIDADE">💎 OPORTUNIDADE</option>
+        <option value="BOM SINAL">👀 BOM SINAL</option>
+        <option value="MONITOR">MONITOR</option>
+      </select>
+      <select id="o-sort">
+        <option value="score">Ordenar: score</option>
+        <option value="vendidos">Ordenar: vendas 30d</option>
+        <option value="receita">Ordenar: receita</option>
+        <option value="rating">Ordenar: rating ↑</option>
+        <option value="delta7">Ordenar: vendas 7d</option>
+      </select>
+      <select id="o-group">
+        <option value="produto">Agrupar: produto</option>
+        <option value="sinal">Agrupar: sinal</option>
+        <option value="none">Sem grupo</option>
+      </select>
+    </div>
     <table id="tbl-opps"><thead></thead><tbody></tbody></table>
   </section>
 
@@ -935,12 +956,76 @@
     return w.join(' · ');
   }
 
+  function oppGroupKey(name) {
+    var toks = ((name || '') + '').toLowerCase()
+      .replace(/[^a-zà-ú0-9 ]/g, ' ').split(/\s+/)
+      .filter(function (w) {
+        return w.length > 1 && !STOP[w] && !ATTR2[w];
+      });
+    return toks.slice(0, 2).join(' ') || (toks[0] || 'outros');
+  }
+
   async function renderOpps() {
     err('Carregando oportunidades…');
     try {
-      var rows = await sb('/vw_breach_opportunities?select=*' +
-        '&order=opportunity_score.desc&limit=80');
-      var body = rows.map(function (r) {
+      if (!state.oppsRows) {
+        state.oppsRows = await sb('/vw_breach_opportunities?select=*' +
+          '&order=opportunity_score.desc&limit=500');
+      }
+      var q = ($('#o-search').value || '').toLowerCase();
+      var sF = $('#o-sinal').value, sort = $('#o-sort').value;
+      var group = $('#o-group').value;
+      var META = { score: 'opportunity_score', vendidos: 'sold_30_days',
+                   receita: 'receita_30d', rating: 'product_rating',
+                   delta7: 'vendas_ultimos_7d' };
+      var rows = state.oppsRows.filter(function (r) {
+        if (sF && (r.sinal || 'MONITOR') !== sF) return false;
+        if (!q) return true;
+        return (r.name || '').toLowerCase().indexOf(q) !== -1 ||
+               String(r.item_id).indexOf(q) !== -1;
+      });
+      var inv = sort === 'rating' ? -1 : 1;
+      rows.sort(function (a, b) {
+        return ((b[META[sort]] || 0) - (a[META[sort]] || 0)) * inv;
+      });
+      if (group !== 'none') {
+        rows.forEach(function (r) {
+          r._g = group === 'produto' ? oppGroupKey(r.name)
+                                     : (r.sinal || 'MONITOR');
+        });
+        rows.sort(function (a, b) {
+          var d = (b._gs || 0) - (a._gs || 0);
+          if (group === 'produto') {
+            // ordena grupos por vendas somadas
+            var gv = {};
+            rows.forEach(function (r) {
+              gv[r._g] = (gv[r._g] || 0) + (r.sold_30_days || 0);
+            });
+            d = (gv[b._g] || 0) - (gv[a._g] || 0);
+          }
+          return d || ((b[META[sort]] || 0) - (a[META[sort]] || 0)) * inv;
+        });
+      }
+      var body = '', lastG = null;
+      rows.forEach(function (r) {
+        if (group !== 'none' && r._g !== lastG) {
+          var gs = rows.filter(function (x) { return x._g === r._g; });
+          var vol = gs.reduce(function (a, x) {
+            return a + (x.sold_30_days || 0); }, 0);
+          var nb = gs.filter(function (x) {
+            return x.sinal === 'OPORTUNIDADE'; }).length;
+          body += '<tr class="grouphead"><td colspan="11">' + r._g +
+            ' <span class="muted" style="font-weight:400">· ' + gs.length +
+            ' item(ns) · ' + nn(vol) + ' vendidos 30d' +
+            (group === 'produto' ? ' · <span class="tag ' +
+              (nb ? 'brecha' : 'monitor') + '">oportunidade em ' + nb +
+              '/' + gs.length + '</span>' : '') +
+            '</span></td></tr>';
+          lastG = r._g;
+        }
+        body += rowOf(r);
+      });
+      function rowOf(r) {
         var sinal = r.sinal || 'MONITOR';
         return '<tr>' +
           '<td><a href="' + link(r) + '" target="_blank" rel="noopener">' +
@@ -959,7 +1044,7 @@
             (sinal === 'OPORTUNIDADE' ? 'brecha'
             : sinal === 'BOM SINAL' ? 'bom' : 'monitor') + '">' + sinal + '</span></td>' +
         '</tr>';
-      }).join('');
+      }
       $('#tbl-opps thead').innerHTML =
         '<tr><th>Produto</th><th class="num">Score</th><th class="num">Preço</th>' +
         '<th class="num">30d</th><th class="num">7d real</th><th class="num">Receita</th>' +
@@ -1493,6 +1578,9 @@
   });
   $('#f-purge').onclick = purgeSolid;
   $('#f-novar').onchange = renderTracked;
+  ['o-search', 'o-sinal', 'o-sort', 'o-group'].forEach(function (id) {
+    $('#' + id).oninput = $('#' + id).onchange = renderOpps;
+  });
   $('#f-sweep').onclick = function () { sweepStart(sweepUrlsOf(true)); };
   $('#f-sweep-all').onclick = function () { sweepStart(sweepUrlsOf(false)); };
   $('#cat-file').onchange = function (ev) {
