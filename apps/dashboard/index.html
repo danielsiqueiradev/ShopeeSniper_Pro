@@ -164,6 +164,10 @@
       <label class="muted"><input type="checkbox" id="f-onlybrecha"> só com brecha</label>
       <button class="tab" id="f-purge" style="border-color:#7a2a2a"
         title="remove do tracker todo veredito 🔴 Incumbente sólido">🧹 Cortar 🔴</button>
+      <span class="muted">|</span>
+      <button class="tab" id="f-sweep">🔁 Varrir <span id="sweep-n">0</span></button>
+      <button class="tab" id="f-sweep-all">🔁 Todos</button>
+      <span class="muted" id="sweep-prog"></span>
     </div>
     <table id="tbl-tracked"><thead></thead><tbody></tbody></table>
   </section>
@@ -626,7 +630,7 @@
         if (g !== lastGroup) {
           var fs = fams && famStats[g];
           var cs = clus && clus.stats[g];
-          body += '<tr class="grouphead"><td colspan="11">' + g +
+          body += '<tr class="grouphead"><td colspan="12">' + g +
             (cs ? ' <span class="muted" style="font-weight:400">' +
                   '· ' + cs.n + ' item(ns) · ' + nn(cs.vol) +
                   ' vendidos 30d · ' + brl(cs.rec) +
@@ -653,6 +657,8 @@
                   (r.i.stockZero ? ' <span class="tag quente">📦 zerou</span>' : '');
       var stat = r.i.cost.status;
       body += '<tr class="rowlink" data-ficha="' + r.t.item_id + '">' +
+        '<td><input type="checkbox" class="selbox" data-id="' + r.t.item_id +
+          '"' + (state.sel[r.t.item_id] ? ' checked' : '') + '></td>' +
         '<td><a href="' + link(r.t) + '" target="_blank" rel="noopener">' +
           (r.i.name || 'item ' + r.t.item_id) + '</a>' +
           '<br><span class="muted">' + r.t.item_id + '</span>' + flags + '</td>' +
@@ -681,17 +687,34 @@
       '</tr>';
     });
     $('#tbl-tracked thead').innerHTML =
-      '<tr><th>Produto</th><th class="num">Preço</th><th class="num">Vendidos</th>' +
+      '<tr><th><input type="checkbox" id="sel-all"></th><th>Produto</th>' +
+      '<th class="num">Preço</th><th class="num">Vendidos</th>' +
       '<th class="num">Δ7d/WoW</th><th class="num">Receita 30d</th><th class="num">Rating</th>' +
       '<th class="num">Lucro real/un</th><th class="num">Payback</th><th>Sinal</th><th></th></tr>';
     $('#tbl-tracked tbody').innerHTML = body ||
-      '<tr><td colspan="11" class="muted">nada por aqui</td></tr>';
+      '<tr><td colspan="12" class="muted">nada por aqui</td></tr>';
     document.querySelectorAll('#tbl-tracked .rowlink').forEach(function (tr) {
       tr.onclick = function (e) {
-        if (e.target.closest('a') || e.target.closest('button')) return;
+        if (e.target.closest('a') || e.target.closest('button') ||
+            e.target.closest('input')) return;
         openFicha(tr.dataset.ficha);
       };
     });
+    // checkboxes de varredura
+    document.querySelectorAll('#tbl-tracked .selbox').forEach(function (c) {
+      c.onchange = function () {
+        state.sel[c.dataset.id] = c.checked;
+        $('#sweep-n').textContent = selIds().length;
+      };
+    });
+    $('#sel-all').onchange = function () {
+      var on = this.checked;
+      document.querySelectorAll('#tbl-tracked .selbox')
+        .forEach(function (c) {
+          c.checked = on; state.sel[c.dataset.id] = on;
+        });
+      $('#sweep-n').textContent = selIds().length;
+    };
 
     document.querySelectorAll('#tbl-tracked .untrk').forEach(function (b) {
       b.onclick = function () { untrack(b.dataset.id); };
@@ -1338,6 +1361,48 @@
     return /[;"\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   }
 
+  // ---------- varredura: ritual diário direto do site ----------
+  // Uma aba só cicla pelas PDPs (~9s cada) — a extensão intercepta o
+  // get_pc de cada uma e gera o snapshot do dia. Sem popup-blocker
+  // (1 janela) e sem limite de 20 do painel da extensão.
+  state.sel = state.sel || {};
+  function selIds() {
+    return Object.keys(state.sel)
+      .filter(function (k) { return state.sel[k]; });
+  }
+  var sweepQ = [], sweepIdx = 0, sweepTimer = null, sweepWin = null;
+  function sweepUrlsOf(selOnly) {
+    var ids = selOnly
+      ? selIds()
+      : state.trk.map(function (t) { return String(t.item_id); });
+    return state.trk.filter(function (t) {
+      return ids.indexOf(String(t.item_id)) !== -1 && t.shop_id;
+    }).map(link);
+  }
+  function sweepStart(urls) {
+    if (sweepTimer) { $('#sweep-prog').textContent = 'já varrendo…'; return; }
+    if (!urls.length) {
+      $('#sweep-prog').textContent = 'nada selecionado';
+      return;
+    }
+    sweepQ = urls; sweepIdx = 0;
+    sweepWin = window.open(sweepQ[0], 'ssp_sweep');
+    $('#sweep-prog').textContent = 'varrendo 1/' + sweepQ.length + '…';
+    sweepTimer = setInterval(function () {
+      sweepIdx++;
+      if (sweepIdx >= sweepQ.length || !sweepWin || sweepWin.closed) {
+        clearInterval(sweepTimer); sweepTimer = null;
+        $('#sweep-prog').textContent =
+          '✔ ' + sweepQ.length + ' PDPs enviadas — ' +
+          'snapshots entram no próximo load';
+        return;
+      }
+      try { sweepWin.location.href = sweepQ[sweepIdx]; } catch (e) {}
+      $('#sweep-prog').textContent =
+        'varrendo ' + (sweepIdx + 1) + '/' + sweepQ.length + '…';
+    }, 9000);
+  }
+
   // ---------- UI ----------
   document.querySelectorAll('.tab[data-t]').forEach(function (b) {
     b.onclick = function () {
@@ -1375,6 +1440,8 @@
     document.getElementById(id).oninput = renderTracked;
   });
   $('#f-purge').onclick = purgeSolid;
+  $('#f-sweep').onclick = function () { sweepStart(sweepUrlsOf(true)); };
+  $('#f-sweep-all').onclick = function () { sweepStart(sweepUrlsOf(false)); };
   $('#cat-file').onchange = function (ev) {
     catFile(ev.target.files && ev.target.files[0]);
   };
